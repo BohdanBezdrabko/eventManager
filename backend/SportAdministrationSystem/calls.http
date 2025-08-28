@@ -1,0 +1,51 @@
+POST http://localhost:8081/auth/register
+Content-Type: application/json
+
+{
+  "username": "ihor",
+  "password": "123456",
+  "role": "participant"
+}
+
+### Отримати всі реєстрації
+GET http://localhost:8081/registration
+Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
+Content-Type: application/json
+
+
+### Отримати всі івенти по юзеру
+GET http://localhost:8081/registration/user/31
+Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
+Content-Type: application/json
+
+
+### Створити нову реєстрацію
+POST http://localhost:8081/registration
+Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
+Content-Type: application/json
+
+{
+  "user": { "id": 31 },
+  "event": { "id": 2 },
+  "registrationDate": "2025-08-27",
+  "status": "CONFIRMED"
+}
+
+
+### Оновити реєстрацію (id = 5)
+PUT http://localhost:8081/registration/5
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "user": { "id": 1 },
+  "event": { "id": 3 },
+  "registrationDate": "2025-08-30",
+  "status": "CANCELLED"
+}
+
+
+### Видалити реєстрацію (id = 5)
+DELETE http://localhost:8081/registration/5
+Authorization: Bearer {{token}}
+Content-Type: application/json
