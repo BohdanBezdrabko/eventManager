@@ -4,8 +4,8 @@ import App from './App';
 
 // Bootstrap CSS
 import 'bootstrap/dist/css/bootstrap.min.css';
-// SASS із шаблону
-import '@assets/scss/paper-dashboard.scss';
+import 'bootstrap/dist/js/bootstrap.bundle.min.js';
+
 
 ReactDOM.createRoot(document.getElementById('root')).render(
     <React.StrictMode>

@@ -40,3 +40,16 @@
 .read-the-docs {
   color: #888;
 }
+:root {
+  color-scheme: light !important; /* браузеру тільки світла схема */
+}
+
+html[data-bs-theme] {
+  --bs-body-bg: #fff;
+  --bs-body-color: #000;
+}
+
+body {
+  background-color: #fff !important;
+  color: #000 !important;
+}

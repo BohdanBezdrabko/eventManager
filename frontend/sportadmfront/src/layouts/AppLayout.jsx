@@ -1,29 +1,30 @@
-// src/layouts/AppLayout.jsx
-import { Outlet, useLocation } from 'react-router-dom';
-import Header from '../components/Header';
-import { useAuth } from '../context/AuthContext';
+import { Outlet, useLocation, matchPath } from 'react-router-dom';
+import { useMemo } from 'react';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer.jsx';
+
+
+const HIDE_HEADER_PATTERNS = [
+    '/login',
+    '/register',
+    '/auth/*',
+];
 
 export default function AppLayout() {
-    const { booting } = useAuth();
     const { pathname } = useLocation();
 
-    // Шляхи без хедера
-    const hideHeader = pathname.startsWith('/login') || pathname.startsWith('/register');
-
-    if (booting) {
-        return (
-            <div className="container-fluid vh-100 d-flex justify-content-center align-items-center">
-                <div className="spinner-border" role="status">
-                    <span className="visually-hidden">Завантаження...</span>
-                </div>
-            </div>
-        );
-    }
+    const hideHeader = useMemo(
+        () => HIDE_HEADER_PATTERNS.some((p) => !!matchPath(p, pathname)),
+        [pathname]
+    );
 
     return (
-        <>
+        <div className="d-flex flex-column min-vh-100">
             {!hideHeader && <Header />}
-            <Outlet />
-        </>
+            <main className="flex-grow-1">
+                <Outlet />
+            </main>
+            <Footer />
+        </div>
     );
 }
