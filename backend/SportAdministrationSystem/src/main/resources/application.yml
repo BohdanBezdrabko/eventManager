@@ -1,0 +1,24 @@
+spring:
+  application:
+    name: sport-administration-system
+  datasource:
+    url: jdbc:postgresql://localhost:5432/volleyball
+    username: postgres
+    password: postgres
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: true
+
+server:
+  port: 8081
+
+app:
+  cors:
+    allowed-origins: ["http://localhost:5173", "http://localhost:5175"]
+
+jwt:
+  secret: change-me-very-long-secret-key-1234567890
+  access-exp-min: 60
+  refresh-exp-days: 7

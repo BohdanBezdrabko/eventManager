@@ -1,17 +1,8 @@
-import { getToken } from "./auth.jsx";
+// src/services/eventRegistrations.js
+import { http } from "@/utils/fetchWrapper";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8081";
+const BASE = "/api/v1/registrations";
 
-export async function getUserEvents(userId) {
-    const res = await fetch(`${API_URL}/registration/user/${userId}`, {
-        headers: {
-            "Authorization": `Bearer ${getToken()}`,
-            "Content-Type": "application/json",
-        },
-    });
-
-    if (!res.ok) {
-        throw new Error("Не вдалося завантажити івенти користувача");
-    }
-    return res.json();
-}
+export const getUserEvents = (userId) => http.get(`${BASE}/user/${encodeURIComponent(userId)}`);
+export const registerForEvent = (eventId) => http.post(`${BASE}/event/${encodeURIComponent(eventId)}`, {});
+export const cancelRegistration = (eventId) => http.delete(`${BASE}/event/${encodeURIComponent(eventId)}`);

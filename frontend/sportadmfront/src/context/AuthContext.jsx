@@ -1,22 +1,15 @@
 // src/context/AuthContext.jsx
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import {
-    loginUser,
-    registerUser,
-    logoutUser,
-    getToken,
-    setToken,
-    clearToken,
-} from '../services/auth';
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { loginUser, registerUser, logoutUser, getToken, setToken, clearToken } from "@/services/auth";
 
+const AuthContext = createContext(null);
+
+// Minimal, robust JWT parser
 function parseJwt(token) {
     try {
-        const base64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+        const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
         const json = decodeURIComponent(
-            atob(base64)
-                .split('')
-                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
+            atob(base64).split("").map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join("")
         );
         return JSON.parse(json);
     } catch {
@@ -24,67 +17,70 @@ function parseJwt(token) {
     }
 }
 
-function mapPayloadToUser(p) {
-    if (!p) return null;
-    return {
-        id: p.id ?? p.userId ?? p.sub ?? null,
-        username: p.username ?? p.sub ?? '',
-        roles: Array.isArray(p.roles) ? p.roles : (Array.isArray(p.authorities) ? p.authorities : []),
-    };
-}
-
-const AuthContext = createContext(null);
-
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [booting, setBooting] = useState(true);
 
-    // Ініціалізація з localStorage токена
+    // Rehydrate from token on load
     useEffect(() => {
-        const t = getToken?.();
-        if (!t) {
+        const token = getToken();
+        if (!token) {
             setBooting(false);
             return;
         }
-        const u = mapPayloadToUser(parseJwt(t));
-        if (u) setUser(u);
-        else {
-            clearToken?.();
-            setUser(null);
+
+        const claims = parseJwt(token);
+        if (claims) {
+            const roles = Array.isArray(claims.roles)
+                ? claims.roles
+                : typeof claims.role === "string"
+                    ? claims.role.split(",")
+                    : typeof claims.scope === "string"
+                        ? claims.scope.split(" ")
+                        : [];
+            setUser({
+                id: claims.sub || claims.userId || null,
+                username: claims.username || claims.preferred_username || claims.email || null,
+                roles,
+                claims,
+            });
         }
         setBooting(false);
     }, []);
 
-    const value = useMemo(
-        () => ({
+    const value = useMemo(() => ({
             user,
             booting,
-
-            // Логін: сервіс повертає { token, user }
+            isAuthenticated: !!user,
             async login(credentials) {
-                const { token, user: uFromApi } = await loginUser(credentials);
-                if (token) setToken(token);
-                const u = uFromApi ?? mapPayloadToUser(parseJwt(token));
-                setUser(u ?? null);
-                return u ?? null;
-            },
-
-            // Реєстрація: сервіс повертає { token, user }
-            async register(payload) {
-                const { token, user: uFromApi } = await registerUser(payload);
-                if (token) setToken(token);
-                const u = uFromApi ?? mapPayloadToUser(parseJwt(token));
-                setUser(u ?? null);
-                return u ?? null;
-            },
-
-            async logout() {
-                try {
-                    await logoutUser?.();
-                } finally {
-                    clearToken?.();
-                    setUser(null);
+                const { user: backendUser, accessToken } = await loginUser(credentials);
+                if (accessToken) {
+                    setToken(accessToken);
+                    const claims = parseJwt(accessToken);
+                    if (claims) {
+                        const roles = Array.isArray(claims.roles)
+                            ? claims.roles
+                            : typeof claims.role === "string"
+                                ? claims.role.split(",")
+                                : [];
+                        setUser(backendUser ?? {
+                            id: claims.sub || claims.userId || null,
+                            username: claims.username || claims.preferred_username || claims.email || null,
+                            roles,
+                            claims,
+                        });
+                        return;
+                    }
                 }
+                if (backendUser) setUser(backendUser);
+            },
+            async register(payload) {
+                return registerUser(payload);
+            },
+            async logout() {
+                await logoutUser();
+                setUser(null);
+                clearToken();
             },
         }),
         [user, booting]
@@ -95,6 +91,6 @@ export function AuthProvider({ children }) {
 
 export function useAuth() {
     const ctx = useContext(AuthContext);
-    if (!ctx) throw new Error('useAuth must be used within AuthProvider');
+    if (!ctx) throw new Error("useAuth must be used within AuthProvider");
     return ctx;
 }

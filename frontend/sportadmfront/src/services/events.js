@@ -1,20 +1,14 @@
 // src/services/events.js
-const API_BASE = 'http://localhost:8081';
+import { http } from "@/utils/fetchWrapper";
 
-export async function getAllEvents() {
-    const res = await fetch(`${API_BASE}/event/all`, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error('Не вдалося завантажити події');
-    return res.json();
-}
+const BASE = "/api/v1/events";
 
-export async function getEventsByName(name) {
-    const res = await fetch(`${API_BASE}/event/name/${encodeURIComponent(name)}`, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error('Не вдалося знайти події за назвою');
-    return res.json();
-}
+export const getAllEvents = () => http.get(`${BASE}`);
+export const getEventById = (id) => http.get(`${BASE}/${encodeURIComponent(id)}`);
+export const getEventsByName = (name) => http.get(`${BASE}/name/${encodeURIComponent(name)}`);
+export const getEventsByLocation = (location) => http.get(`${BASE}/location/${encodeURIComponent(location)}`);
 
-export async function getEventsByLocation(location) {
-    const res = await fetch(`${API_BASE}/event/location/${encodeURIComponent(location)}`, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error('Не вдалося знайти події за локацією');
-    return res.json();
-}
+// Auth-required examples
+export const createEvent = (payload) => http.post(`${BASE}`, payload);
+export const updateEvent = (id, payload) => http.put(`${BASE}/${encodeURIComponent(id)}`, payload);
+export const deleteEvent = (id) => http.delete(`${BASE}/${encodeURIComponent(id)}`);

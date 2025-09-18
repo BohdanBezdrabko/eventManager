@@ -1,136 +1,87 @@
-// src/services/auth.js
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8081';
+// src/services/auth.jsx
+const API_ROOT = import.meta.env.VITE_API_URL || "http://localhost:8081";
 
-// ===== Token storage =====
-function setToken(token) {
-    if (token) localStorage.setItem('token', token);
-}
-function getToken() {
-    return localStorage.getItem('token');
-}
-function clearToken() {
-    localStorage.removeItem('token');
+// === Token API (single source of truth) ===
+const ACCESS_KEY = "accessToken";
+
+/** Persist JWT access token */
+export function setToken(token) {
+    if (!token) return;
+    localStorage.setItem(ACCESS_KEY, token);
 }
 
-export { setToken, getToken, clearToken };
-
-async function readError(res) {
-    const txt = await res.text();
-    try {
-        const parsed = JSON.parse(txt);
-        return parsed.message || txt || res.statusText;
-    } catch {
-        return txt || res.statusText;
-    }
+/** Read JWT access token */
+export function getToken() {
+    return localStorage.getItem(ACCESS_KEY);
 }
 
-// ===== Auth API =====
+/** Clear all auth state on client */
+export function clearToken() {
+    localStorage.removeItem(ACCESS_KEY);
+}
 
-/**
- * Реєстрація: очікуємо { token, user } від бекенду.
- * Повертаємо { token, user } і зберігаємо токен у localStorage.
- */
-export async function registerUser({ username, password, role = 'participant' }) {
-    const res = await fetch(`${API_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, role }),
-    });
+/** Helper: JSON fetch with base URL and auth header */
+async function jsonFetch(path, init = {}) {
+    const url = /^https?:\/\//i.test(path) ? path : `${API_ROOT}${path}`;
 
-    if (!res.ok) {
-        throw new Error((await readError(res)) || 'Registration failed');
+    const headers = new Headers(init.headers || {});
+    if (!headers.has("Accept")) headers.set("Accept", "application/json");
+    if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
     }
 
-    const data = await res.json(); // { token, user }
-    if (!data?.token || !data?.user) {
-        throw new Error('Invalid response from server');
-    }
-
-    setToken(data.token);
-    return { token: data.token, user: data.user };
-}
-
-/**
- * Логін: очікуємо { token, user }.
- */
-export async function loginUser({ username, password }) {
-    const res = await fetch(`${API_URL}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-    });
-
-    if (!res.ok) {
-        throw new Error((await readError(res)) || 'Login failed');
-    }
-
-    const data = await res.json(); // { token, user }
-    if (!data?.token || !data?.user) {
-        throw new Error('Invalid response from server');
-    }
-
-    setToken(data.token);
-    return { token: data.token, user: data.user };
-}
-
-/**
- * Отримати поточного користувача з бекенду.
- */
-export async function getCurrentUser() {
     const token = getToken();
-    if (!token) throw new Error('No token');
-
-    const res = await fetch(`${API_URL}/auth/user/me`, {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (res.status === 401) {
-        clearToken();
-        throw new Error('Unauthorized');
+    if (token && !headers.has("Authorization")) {
+        headers.set("Authorization", `Bearer ${token}`);
     }
 
-    if (!res.ok) {
-        throw new Error((await readError(res)) || 'Не вдалося отримати дані користувача');
-    }
-
-    return res.json();
-}
-
-/** Логаут: просто чистимо токен (JWT — stateless) */
-export function logoutUser() {
-    clearToken();
-}
-
-// Хелпер для додавання Authorization у ваші інші fetch-и:
-export function authHeaders(extra = {}) {
-    const token = getToken();
-    return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
-}
-
-// Універсальний fetch з токеном та базовою обробкою
-export async function authFetch(path, options = {}) {
-    const url = path.startsWith('http') ? path : `${API_URL}${path}`;
-    const res = await fetch(url, {
-        ...options,
-        headers: {
-            'Content-Type': 'application/json',
-            ...authHeaders(options.headers),
-        },
-    });
-
-    if (res.status === 401) {
-        clearToken();
-        throw new Error('Unauthorized');
-    }
+    const res = await fetch(url, { ...init, headers });
 
     if (res.status === 204) return null;
 
     const text = await res.text();
-    if (!text) return null;
+    const data = text ? (() => { try { return JSON.parse(text); } catch { return text; } })() : null;
+
+    if (!res.ok) {
+        if (res.status === 401) clearToken();
+        const message = (data && data.message) || res.statusText || "Request failed";
+        throw new Error(message);
+    }
+
+    return data;
+}
+
+// === Auth endpoints ===
+export async function loginUser({ username, email, password }) {
+    const payload = username ? { username, password } : { email, password };
+    const data = await jsonFetch("/api/v1/auth/login", {
+        method: "POST",
+        body: JSON.stringify(payload),
+    });
+
+    const accessToken = data?.accessToken || data?.token || data?.jwt || data?.id_token;
+    if (accessToken) setToken(accessToken);
+
+    const user = data?.user ?? null;
+    return { user, accessToken };
+}
+
+export async function registerUser(payload) {
+    const data = await jsonFetch("/api/v1/auth/register", {
+        method: "POST",
+        body: JSON.stringify(payload),
+    });
+    const accessToken = data?.accessToken || data?.token || null;
+    if (accessToken) setToken(accessToken);
+    return data;
+}
+
+export async function logoutUser() {
     try {
-        return JSON.parse(text);
-    } catch {
-        return text;
+        await jsonFetch("/api/v1/auth/logout", { method: "POST" });
+    } catch (_) {
+        // ignore
+    } finally {
+        clearToken();
     }
 }

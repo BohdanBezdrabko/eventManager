@@ -38,7 +38,6 @@ public class UserRegistrationService {
                     existing.setUser(updated.getUser());
                     existing.setEvent(updated.getEvent());
                     existing.setRegistrationDate(updated.getRegistrationDate());
-                    existing.setStatus(updated.getStatus());
                     return repository.save(existing);
                 })
                 .orElseThrow(() -> new RuntimeException("UserRegistration not found with id " + id));

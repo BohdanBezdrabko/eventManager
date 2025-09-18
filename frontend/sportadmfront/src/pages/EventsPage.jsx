@@ -4,7 +4,7 @@ import {
     getAllEvents,
     getEventsByLocation,
     getEventsByName,
-} from "../services/events";
+} from "../services/events.js";
 import { Search, MapPin, Calendar } from "lucide-react";
 
 export default function EventsPage() {

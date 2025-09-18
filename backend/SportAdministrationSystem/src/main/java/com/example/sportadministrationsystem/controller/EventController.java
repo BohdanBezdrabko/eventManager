@@ -7,35 +7,37 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RequiredArgsConstructor
 @RestController
-@RequestMapping("/event")
+@RequestMapping("/api/v1/events")
 public class EventController {
     private final EventService eventService;
 
-    @GetMapping("/id/{id}")
-    public ResponseEntity findById(@PathVariable int id) {
+    @GetMapping("/{id}")
+    public ResponseEntity<Event> findById(@PathVariable int id) {
         return ResponseEntity.ok(eventService.getEventById(id));
     }
-    @GetMapping("/name/{name}")
-    public ResponseEntity findByName(@PathVariable String name) {
+
+    @GetMapping("/by-name/{name}")
+    public ResponseEntity<Optional<Event>> findByName(@PathVariable String name) {
         return ResponseEntity.ok(eventService.getEventByName(name));
     }
-    @GetMapping("/location/{location}")
-    public ResponseEntity findByLocation(@PathVariable String location) {
+
+    @GetMapping("/by-location/{location}")
+    public ResponseEntity<Optional<Event>> findByLocation(@PathVariable String location) {
         return ResponseEntity.ok(eventService.getEventByLocation(location));
     }
+
     @PostMapping
     public ResponseEntity<Event> addEvent(@RequestBody Event event) {
         Event savedEvent = eventService.addEvent(event);
         return ResponseEntity.ok(savedEvent);
     }
 
-    // Оновити подію
     @PutMapping("/{id}")
     public ResponseEntity<Event> updateEvent(@PathVariable int id, @RequestBody Event event) {
-        // Переконаємось, що id з URL і id з тіла збігаються
         if (id != event.getId()) {
             return ResponseEntity.badRequest().build();
         }
@@ -43,15 +45,14 @@ public class EventController {
         return ResponseEntity.ok(updatedEvent);
     }
 
-    // Видалити подію
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deleteEvent(@PathVariable int id) {
         eventService.deleteEvent(id);
         return ResponseEntity.noContent().build();
     }
-    @GetMapping("/all")
+
+    @GetMapping
     public ResponseEntity<List<Event>> getAllEvents() {
-        List<Event> events = eventService.getAllEvents();
-        return ResponseEntity.ok(events);
+        return ResponseEntity.ok(eventService.getAllEvents());
     }
 }

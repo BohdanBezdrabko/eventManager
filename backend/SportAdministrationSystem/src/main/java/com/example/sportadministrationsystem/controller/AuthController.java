@@ -4,11 +4,11 @@ import com.example.sportadministrationsystem.dto.RegisterRequest;
 import com.example.sportadministrationsystem.model.Role;
 import com.example.sportadministrationsystem.model.User;
 import com.example.sportadministrationsystem.repository.UserRepository;
-import com.example.sportadministrationsystem.config.JwtTokenProvider;
+import com.example.sportadministrationsystem.security.JwtTokenProvider;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -22,27 +22,21 @@ import java.security.Principal;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@RequiredArgsConstructor
 @RestController
-@RequestMapping("/auth")
+@RequestMapping("/api/v1/auth")
 public class AuthController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
 
-    @Autowired
-    private UserRepository userRepository;
-
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private AuthenticationManager authenticationManager;
-
-    @Autowired
-    private JwtTokenProvider jwtTokenProvider;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenProvider jwtTokenProvider;
 
     // ======== DTOs ========
     public record LoginRequest(String username, String password) {}
-    public record JwtResponse(String token, UserMeResponse user) {}
+    public record JwtResponse(String accessToken, String refreshToken, UserMeResponse user) {}
     public record UserMeResponse(Long id, String username, Set<String> roles) {}
 
     // ======== Helpers ========
@@ -51,12 +45,6 @@ public class AuthController {
         return s == null || s.trim().isEmpty();
     }
 
-    /**
-     * Мапінг вхідного role на Role enum:
-     * "creator" -> ROLE_ADMIN
-     * "participant" -> ROLE_USER
-     * інші/порожнє -> ROLE_USER
-     */
     private Role mapRequestedRole(String raw) {
         if (raw == null) return Role.ROLE_USER;
         String v = raw.trim().toLowerCase();
@@ -75,17 +63,16 @@ public class AuthController {
     private JwtResponse buildJwtResponse(Authentication auth) {
         var principal = (org.springframework.security.core.userdetails.User) auth.getPrincipal();
 
-        Set<String> roles = principal.getAuthorities().stream()
-                .map(GrantedAuthority::getAuthority)
-                .collect(Collectors.toSet());
-
-        String token = jwtTokenProvider.createToken(principal.getUsername(), roles);
-
         User domainUser = userRepository.findByUsername(principal.getUsername())
                 .orElseThrow(() -> new IllegalStateException("User not found after authentication"));
 
-        return new JwtResponse(token, toUserMe(domainUser));
+        String accessToken = jwtTokenProvider.generateAccessToken(principal);
+        String refreshToken = jwtTokenProvider.generateRefreshToken(principal);
+
+        return new JwtResponse(accessToken, refreshToken, toUserMe(domainUser));
     }
+
+    // ======== Endpoints ========
 
     @PostMapping("/register")
     public ResponseEntity<?> register(@Valid @RequestBody RegisterRequest req) {
@@ -111,15 +98,7 @@ public class AuthController {
 
         userRepository.save(user);
 
-        // Перевірка, що роль збережена
-        User saved = userRepository.findByUsername(req.username()).orElse(null);
-        if (saved == null || saved.getRoles() == null || !saved.getRoles().contains(role)) {
-            log.error("Persisted roles do not contain expected role {} for user {}", role, req.username());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Role was not persisted as expected");
-        }
-
-        // Одразу логінимо і повертаємо {token, user}
+        // Одразу логінимо і повертаємо {tokens, user}
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(req.username(), req.password())
         );
@@ -136,13 +115,12 @@ public class AuthController {
         return ResponseEntity.ok(buildJwtResponse(auth));
     }
 
-    @GetMapping("/user/me")
+    @GetMapping("/me")
     public ResponseEntity<UserMeResponse> me(Principal principal) {
         if (principal == null || isBlank(principal.getName())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
-        User user = userRepository.findByUsername(principal.getName())
-                .orElse(null);
+        User user = userRepository.findByUsername(principal.getName()).orElse(null);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }

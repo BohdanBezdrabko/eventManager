@@ -1,64 +1,54 @@
 // src/components/Header.jsx
-import { NavLink, Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext.jsx';
+import { NavLink, Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Header() {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
 
-    const linkClass = ({ isActive }) => `nav-link${isActive ? ' active fw-semibold' : ''}`;
+    const linkClass = ({ isActive }) => "nav-link" + (isActive ? " active" : "");
 
-    const handleLogout = async () => {
-        try { await logout(); } finally { navigate('/login'); }
+    const onLogout = async () => {
+        try {
+            await logout();
+        } finally {
+            navigate("/login", { replace: true });
+        }
     };
 
     return (
-        <nav className="navbar navbar-expand-lg navbar-light bg-light border-bottom">
+        <nav className="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
             <div className="container">
-                <Link className="navbar-brand fw-bold" to="/">SportAdmin</Link>
-
-                <button
-                    className="navbar-toggler"
-                    type="button"
-                    data-bs-toggle="collapse"
-                    data-bs-target="#primaryNavbar"
-                    aria-controls="primaryNavbar"
-                    aria-expanded="false"
-                    aria-label="Toggle navigation"
-                >
-                    <span className="navbar-toggler-icon" />
+                <Link className="navbar-brand" to="/">EventSys</Link>
+                <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+                    <span className="navbar-toggler-icon"></span>
                 </button>
 
-                <div className="collapse navbar-collapse" id="primaryNavbar">
-                    <ul className="navbar-nav ms-auto mb-2 mb-lg-0">
-                        {/* публічні лінки */}
+                <div className="collapse navbar-collapse" id="mainNav">
+                    <ul className="navbar-nav me-auto mb-2 mb-lg-0">
                         <li className="nav-item">
-                            <NavLink to="/" end className={linkClass}>Головна</NavLink>
+                            <NavLink to="/" className={linkClass} end>Головна</NavLink>
                         </li>
                         <li className="nav-item">
-                            <NavLink to="/events" className={linkClass}>Події</NavLink>
+                            <NavLink to="/events" className={linkClass}>Івенти</NavLink>
                         </li>
+                        {user && (
+                            <li className="nav-item">
+                                <NavLink to="/dashboard" className={linkClass}>Кабінет</NavLink>
+                            </li>
+                        )}
+                    </ul>
 
-                        {user ? (
+                    <ul className="navbar-nav ms-auto">
+                        {!user ? (
                             <>
-                                <li className="nav-item">
-                                    <NavLink to="/dashboard" className={linkClass}>Кабінет</NavLink>
-                                </li>
-                                <li className="nav-item">
-                                    <button className="btn btn-outline-secondary ms-lg-3" onClick={handleLogout}>
-                                        Вийти
-                                    </button>
-                                </li>
+                                <li className="nav-item"><NavLink to="/login" className={linkClass}>Увійти</NavLink></li>
+                                <li className="nav-item"><NavLink to="/register" className={linkClass}>Реєстрація</NavLink></li>
                             </>
                         ) : (
-                            <>
-                                <li className="nav-item">
-                                    <NavLink to="/login" className={linkClass}>Увійти</NavLink>
-                                </li>
-                                <li className="nav-item">
-                                    <NavLink to="/register" className={linkClass}>Зареєструватися</NavLink>
-                                </li>
-                            </>
+                            <li className="nav-item">
+                                <button className="btn btn-outline-danger" onClick={onLogout}>Вийти</button>
+                            </li>
                         )}
                     </ul>
                 </div>
