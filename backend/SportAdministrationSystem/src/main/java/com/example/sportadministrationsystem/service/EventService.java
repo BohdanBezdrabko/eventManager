@@ -1,5 +1,6 @@
 package com.example.sportadministrationsystem.service;
 
+import com.example.sportadministrationsystem.dto.EventCreateDto;
 import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.repository.EventRepository;
 import jakarta.transaction.Transactional;
@@ -70,4 +71,18 @@ public class EventService {
         }
         return event;
     }
+    @Transactional
+    public Event create(EventCreateDto dto) {
+        Event e = new Event();
+        e.setName(dto.getName());
+        e.setStartAt(dto.getStartAt());
+        e.setLocation(dto.getLocation());
+        e.setCapacity(dto.getCapacity());
+        e.setDescription(dto.getDescription());
+        e.setCoverUrl(dto.getCoverUrl());
+        return eventRepository.save(e);
+    }
+
+    public List<Event> getEventsByLocation(String location) { return eventRepository.findAllByLocationIgnoreCase(location); }
+    public List<Event> getEventsByName(String name) { return eventRepository.findAllByNameIgnoreCase(name); }
 }

@@ -1,32 +1,44 @@
 package com.example.sportadministrationsystem.config;
 
-import lombok.Setter;
-import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.Bindable;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.List;
 
-@Setter
 @Configuration
-@ConfigurationProperties(prefix = "app.cors")
 public class CorsConfig {
 
-    private List<String> allowedOrigins;
+    private final Environment env;
+
+    public CorsConfig(Environment env) {
+        this.env = env;
+    }
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(allowedOrigins);
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
+        // Підтримує YAML-списки і рядки "a,b"
+        List<String> allowed = Binder.get(env)
+                .bind("app.cors.allowed-origins", Bindable.listOf(String.class))
+                .orElse(List.of("http://localhost:5173", "http://localhost:5175"))
+                .stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList();
+
+        CorsConfiguration c = new CorsConfiguration();
+        c.setAllowedOrigins(allowed);
+        c.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
+        c.setAllowedHeaders(List.of("Authorization","Content-Type","Accept","X-Requested-With"));
+        c.setExposedHeaders(List.of("Authorization","Location","Content-Disposition"));
+        c.setAllowCredentials(true);
+        // якщо потрібен кеш preflight, розкоментуй:
+        // c.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", config);
+        source.registerCorsConfiguration("/**", c);
         return source;
     }
 }

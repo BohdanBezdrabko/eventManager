@@ -1,91 +1,50 @@
 // src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { loginUser, registerUser, logoutUser, getToken, setToken, clearToken } from "@/services/auth";
+import { loginUser, registerUser, setToken, getToken, clearToken, userFromToken } from "@/services/auth.jsx";
 
 const AuthContext = createContext(null);
-
-// Minimal, robust JWT parser
-function parseJwt(token) {
-    try {
-        const base64 = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-        const json = decodeURIComponent(
-            atob(base64).split("").map(c => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2)).join("")
-        );
-        return JSON.parse(json);
-    } catch {
-        return null;
-    }
-}
 
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [booting, setBooting] = useState(true);
 
-    // Rehydrate from token on load
     useEffect(() => {
-        const token = getToken();
-        if (!token) {
-            setBooting(false);
-            return;
-        }
-
-        const claims = parseJwt(token);
-        if (claims) {
-            const roles = Array.isArray(claims.roles)
-                ? claims.roles
-                : typeof claims.role === "string"
-                    ? claims.role.split(",")
-                    : typeof claims.scope === "string"
-                        ? claims.scope.split(" ")
-                        : [];
-            setUser({
-                id: claims.sub || claims.userId || null,
-                username: claims.username || claims.preferred_username || claims.email || null,
-                roles,
-                claims,
-            });
+        const t = getToken();
+        if (t) {
+            const u = userFromToken(t);
+            const now = Math.floor(Date.now() / 1000);
+            if (u?.exp && u.exp < now) {
+                clearToken();
+                setUser(null);
+            } else {
+                setUser(u || null);
+            }
+        } else {
+            setUser(null);
         }
         setBooting(false);
     }, []);
 
-    const value = useMemo(() => ({
-            user,
-            booting,
-            isAuthenticated: !!user,
-            async login(credentials) {
-                const { user: backendUser, accessToken } = await loginUser(credentials);
-                if (accessToken) {
-                    setToken(accessToken);
-                    const claims = parseJwt(accessToken);
-                    if (claims) {
-                        const roles = Array.isArray(claims.roles)
-                            ? claims.roles
-                            : typeof claims.role === "string"
-                                ? claims.role.split(",")
-                                : [];
-                        setUser(backendUser ?? {
-                            id: claims.sub || claims.userId || null,
-                            username: claims.username || claims.preferred_username || claims.email || null,
-                            roles,
-                            claims,
-                        });
-                        return;
-                    }
-                }
-                if (backendUser) setUser(backendUser);
-            },
-            async register(payload) {
-                return registerUser(payload);
-            },
-            async logout() {
-                await logoutUser();
-                setUser(null);
-                clearToken();
-            },
-        }),
-        [user, booting]
-    );
+    async function login(identifier, password) {
+        const { token, user } = await loginUser(identifier, password);
+        setToken(token);
+        setUser(user);
+        return user;
+    }
 
+    async function register(username, password, role = "user", extra = {}) {
+        const { token, user } = await registerUser(username, password, role, extra);
+        if (token) setToken(token);
+        setUser(user);
+        return user;
+    }
+
+    function logout() {
+        clearToken();
+        setUser(null);
+    }
+
+    const value = useMemo(() => ({ user, booting, login, register, logout }), [user, booting]);
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

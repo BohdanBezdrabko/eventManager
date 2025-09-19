@@ -1,49 +1,47 @@
 // src/utils/fetchWrapper.jsx
-import { getToken, clearToken } from "@/services/auth";
+import { getToken, clearToken } from "@/services/auth.jsx";
 
-const API_ROOT = import.meta.env.VITE_API_URL || "";
+const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:8081/api/v1").replace(/\/+$/, "");
 
-/** Build absolute URL from relative API path */
-function buildUrl(path) {
-    if (/^https?:\/\//i.test(path)) return path;
-    return `${API_ROOT}${path}`;
+function apiUrl(path) {
+    return /^https?:\/\//i.test(path) ? path : `${API_ROOT}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-/** Universal request helper with JSON defaults and auth */
 export async function request(path, init = {}) {
-    const url = buildUrl(path);
-
     const headers = new Headers(init.headers || {});
-    if (!headers.has("Accept")) headers.set("Accept", "application/json");
-    const isFormData = init.body instanceof FormData;
-    if (!isFormData && init.body && !headers.has("Content-Type")) {
+    const isForm = init.body instanceof FormData;
+
+    headers.set("Accept", "application/json");
+    if (!isForm && init.body && !headers.has("Content-Type")) {
         headers.set("Content-Type", "application/json");
     }
 
-    const token = getToken();
-    if (token && !headers.has("Authorization")) {
-        headers.set("Authorization", `Bearer ${token}`);
-    }
+    const t = getToken();
+    if (t) headers.set("Authorization", `Bearer ${t}`);
 
-    const res = await fetch(url, { ...init, headers });
+    const res = await fetch(apiUrl(path), { ...init, headers });
 
     if (res.status === 401) {
         clearToken();
-        throw new Error("Unauthorized");
+        throw new Error("Unauthorized 401");
     }
 
-    if (res.status === 204) return null;
+    if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status} ${text}`);
+    }
 
-    const text = await res.text();
-    if (!text) return null;
-    try { return JSON.parse(text); } catch { return text; }
+    const ct = res.headers.get("content-type") || "";
+    return ct.includes("application/json") ? res.json() : res.text();
 }
 
-/** Verb helpers */
 export const http = {
     get: (p) => request(p, { method: "GET" }),
-    post: (p, body) => request(p, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body) }),
-    put: (p, body) => request(p, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body) }),
-    patch: (p, body) => request(p, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body) }),
+    post: (p, body) =>
+        request(p, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+    put: (p, body) =>
+        request(p, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+    patch: (p, body) =>
+        request(p, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
     delete: (p) => request(p, { method: "DELETE" }),
 };

@@ -1,24 +1,39 @@
+
 package com.example.sportadministrationsystem.model;
 
-import lombok.*;
 import jakarta.persistence.*;
+import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 
-import java.time.LocalDate;
-import java.time.LocalTime;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "events")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor
 @Builder
 public class Event {
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @Column(nullable = false,length = 255)
     private String name;
-    private String description;
+
+    @Column(nullable = false)
+    private LocalDateTime startAt;      // внутрішнє поле часу
+
+    @Column(nullable = false,length = 255)
     private String location;
-    private LocalDate date;
-    private LocalTime time;
+
+    private Integer capacity;
+
+    @Column(length = 2048)
+    private String description;
+
+    @Column(length = 2048)
+    private String coverUrl;
+
+    @CreationTimestamp
+    private LocalDateTime createdAt;
 }

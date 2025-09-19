@@ -16,19 +16,25 @@ public class UserRegistrationController {
 
     private final UserRegistrationService service;
 
-    // Отримати всі реєстрації
+    // Усі реєстрації
     @GetMapping
     public ResponseEntity<List<UserRegistration>> getAll() {
         return ResponseEntity.ok(service.getAll());
     }
 
-    // Отримати всі події користувача
+    // Події користувача — основний маршрут
     @GetMapping("/user/{userId}")
     public ResponseEntity<List<Event>> getEventsByUserId(@PathVariable Long userId) {
         return ResponseEntity.ok(service.getEventsByUserId(userId));
     }
 
-    // Створити нову реєстрацію
+    // Синонім під фронт (/user-id/{id})
+    @GetMapping("/user-id/{id}")
+    public ResponseEntity<List<Event>> getEventsByUserIdAlias(@PathVariable("id") Long id) {
+        return getEventsByUserId(id);
+    }
+
+    // Створити реєстрацію
     @PostMapping
     public ResponseEntity<UserRegistration> create(@RequestBody UserRegistration userRegistration) {
         return ResponseEntity.ok(service.create(userRegistration));

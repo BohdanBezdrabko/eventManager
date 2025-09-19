@@ -1,9 +1,11 @@
 // src/components/Header.jsx
 import { NavLink, Link, useNavigate } from "react-router-dom";
+// якщо alias "@" не налаштований у vite.config.js, заміни на:
+// import { useAuth } from "../context/AuthContext";
 import { useAuth } from "@/context/AuthContext";
 
 export default function Header() {
-    const { user, logout } = useAuth();
+    const { user, logout, booting } = useAuth();
     const navigate = useNavigate();
 
     const linkClass = ({ isActive }) => "nav-link" + (isActive ? " active" : "");
@@ -16,11 +18,30 @@ export default function Header() {
         }
     };
 
+    const isAdmin = (u) => {
+        if (!u) return false;
+        const roles = Array.isArray(u.roles)
+            ? u.roles
+            : typeof u.roles === "string"
+                ? u.roles.split(/[,\s]+/).filter(Boolean)
+                : [];
+        return roles.includes("ROLE_ADMIN") || roles.includes("ADMIN");
+    };
+
     return (
         <nav className="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
             <div className="container">
                 <Link className="navbar-brand" to="/">EventSys</Link>
-                <button className="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav">
+
+                <button
+                    className="navbar-toggler"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#mainNav"
+                    aria-controls="mainNav"
+                    aria-expanded="false"
+                    aria-label="Toggle navigation"
+                >
                     <span className="navbar-toggler-icon"></span>
                 </button>
 
@@ -32,18 +53,30 @@ export default function Header() {
                         <li className="nav-item">
                             <NavLink to="/events" className={linkClass}>Івенти</NavLink>
                         </li>
-                        {user && (
+
+                        {/* Показуємо захищені пункти лише після завершення booting */}
+                        {!booting && user && (
                             <li className="nav-item">
                                 <NavLink to="/dashboard" className={linkClass}>Кабінет</NavLink>
+                            </li>
+                        )}
+                        {!booting && user && isAdmin(user) && (
+                            <li className="nav-item">
+                                <NavLink to="/events/new" className={linkClass}>Створити івент</NavLink>
                             </li>
                         )}
                     </ul>
 
                     <ul className="navbar-nav ms-auto">
-                        {!user ? (
+                        {/* Поки booting — нічого не показуємо справа, щоб уникнути миготіння і хибних редіректів */}
+                        {booting ? null : !user ? (
                             <>
-                                <li className="nav-item"><NavLink to="/login" className={linkClass}>Увійти</NavLink></li>
-                                <li className="nav-item"><NavLink to="/register" className={linkClass}>Реєстрація</NavLink></li>
+                                <li className="nav-item">
+                                    <NavLink to="/login" className={linkClass}>Увійти</NavLink>
+                                </li>
+                                <li className="nav-item">
+                                    <NavLink to="/register" className={linkClass}>Реєстрація</NavLink>
+                                </li>
                             </>
                         ) : (
                             <li className="nav-item">
