@@ -1,4 +1,3 @@
-// src/pages/LandingPage.jsx
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -44,7 +43,6 @@ export default function LandingPage() {
     );
 }
 
-/* — стиль узгоджений з Login/Register/Home — */
 const styles = `
 :root{
   --bg:#0e0f13; --panel:#131722; --panel2:#1a1f2d;

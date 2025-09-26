@@ -1,11 +1,7 @@
 package com.example.sportadministrationsystem.model;
 
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-
+import lombok.*;
 import java.time.LocalDate;
 
 @Entity
@@ -15,17 +11,19 @@ import java.time.LocalDate;
 @AllArgsConstructor
 @Builder
 public class UserRegistration {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne
-    @JoinColumn(name = "user_id")
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @ManyToOne
-    @JoinColumn(name = "event_id")
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "event_id", nullable = false)
     private Event event;
 
+    @Column(nullable = false)
     private LocalDate registrationDate;
 }

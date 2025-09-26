@@ -34,8 +34,6 @@ public class CorsConfig {
         c.setAllowedHeaders(List.of("Authorization","Content-Type","Accept","X-Requested-With"));
         c.setExposedHeaders(List.of("Authorization","Location","Content-Disposition"));
         c.setAllowCredentials(true);
-        // якщо потрібен кеш preflight, розкоментуй:
-        // c.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", c);

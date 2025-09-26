@@ -1,5 +1,4 @@
-// src/utils/fetchWrapper.jsx
-import { getToken, clearToken } from "@/services/auth.jsx";
+import { getToken } from "@/services/auth.jsx";
 
 const API_ROOT = (import.meta.env.VITE_API_URL || "http://localhost:8081/api/v1").replace(/\/+$/, "");
 
@@ -16,19 +15,19 @@ export async function request(path, init = {}) {
         headers.set("Content-Type", "application/json");
     }
 
-    const t = getToken();
-    if (t) headers.set("Authorization", `Bearer ${t}`);
+    const token = getToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
 
     const res = await fetch(apiUrl(path), { ...init, headers });
 
-    if (res.status === 401) {
-        clearToken();
-        throw new Error("Unauthorized 401");
-    }
-
     if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        throw new Error(`HTTP ${res.status} ${text}`);
+        let detail;
+        try { detail = await res.json(); } catch {}
+        const backendMsg = detail?.message || detail?.error || detail?.detail;
+        const msg = res.status === 401
+            ? (backendMsg || "Помилка авторизації")
+            : (backendMsg || `HTTP ${res.status}`);
+        throw new Error(msg);
     }
 
     const ct = res.headers.get("content-type") || "";
@@ -37,11 +36,8 @@ export async function request(path, init = {}) {
 
 export const http = {
     get: (p) => request(p, { method: "GET" }),
-    post: (p, body) =>
-        request(p, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
-    put: (p, body) =>
-        request(p, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
-    patch: (p, body) =>
-        request(p, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+    post: (p, body) => request(p, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+    put: (p, body) => request(p, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
+    patch: (p, body) => request(p, { method: "PATCH", body: body instanceof FormData ? body : JSON.stringify(body ?? {}) }),
     delete: (p) => request(p, { method: "DELETE" }),
 };

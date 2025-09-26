@@ -1,49 +1,89 @@
 package com.example.sportadministrationsystem.service;
 
+import com.example.sportadministrationsystem.dto.UserRegistrationDto;
 import com.example.sportadministrationsystem.model.Event;
+import com.example.sportadministrationsystem.model.User;
 import com.example.sportadministrationsystem.model.UserRegistration;
+import com.example.sportadministrationsystem.repository.EventRepository;
 import com.example.sportadministrationsystem.repository.UserRegistrationRepository;
+import com.example.sportadministrationsystem.repository.UserRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.List;
-import java.util.stream.Collectors;
 
 @Service
 public class UserRegistrationService {
 
-    private final UserRegistrationRepository repository;
+    private final UserRegistrationRepository registrations;
+    private final EventRepository events;
+    private final UserRepository users;
 
-    public UserRegistrationService(UserRegistrationRepository repository) {
-        this.repository = repository;
+    public UserRegistrationService(UserRegistrationRepository registrations,
+                                   EventRepository events,
+                                   UserRepository users) {
+        this.registrations = registrations;
+        this.events = events;
+        this.users = users;
     }
 
-    public List<UserRegistration> getAll() {
-        return repository.findAll();
+    @Transactional(readOnly = true)
+    public List<UserRegistrationDto> forUser(Long userId) {
+        return registrations.findDtosByUserId(userId);
     }
 
-    public List<Event> getEventsByUserId(Long userId) {
-        return repository.findByUser_Id(userId)
-                .stream()
-                .map(UserRegistration::getEvent)
-                .collect(Collectors.toList());
+    @Transactional(readOnly = true)
+    public List<UserRegistrationDto> forEvent(Long eventId) {
+        return registrations.findDtosByEventId(eventId);
     }
 
-    public UserRegistration create(UserRegistration userRegistration) {
-        return repository.save(userRegistration);
+    @Transactional
+    public UserRegistrationDto register(Long userId, Long eventId) {
+        if (registrations.existsByUser_IdAndEvent_Id(userId, eventId)) {
+            throw new IllegalStateException("Ви вже зареєстровані на цю подію");
+        }
+
+        Event event = events.findByIdForUpdate(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Подію не знайдено"));
+
+        if (event.getCapacity() != null && event.getCapacity() > 0) {
+            int taken = event.getRegisteredCount() == null ? 0 : event.getRegisteredCount();
+            if (taken >= event.getCapacity()) {
+                throw new IllegalStateException("Місць більше немає");
+            }
+        }
+
+        User user = users.findById(userId)
+                .orElseThrow(() -> new IllegalArgumentException("Користувача не знайдено"));
+
+        UserRegistration saved = registrations.save(
+                UserRegistration.builder()
+                        .user(user)
+                        .event(event)
+                        .registrationDate(LocalDate.now())
+                        .build()
+        );
+
+        // Inline DTO. Entities are attached so fields are available.
+        return new UserRegistrationDto(
+                saved.getId(),
+                user.getId(),
+                user.getUsername(),
+                event.getId(),
+                event.getName(),
+                saved.getRegistrationDate()
+        );
     }
 
-    public UserRegistration update(Long id, UserRegistration updated) {
-        return repository.findById(id)
-                .map(existing -> {
-                    existing.setUser(updated.getUser());
-                    existing.setEvent(updated.getEvent());
-                    existing.setRegistrationDate(updated.getRegistrationDate());
-                    return repository.save(existing);
-                })
-                .orElseThrow(() -> new RuntimeException("UserRegistration not found with id " + id));
-    }
+    @Transactional
+    public void cancel(Long userId, Long eventId) {
+        var reg = registrations.findByUser_IdAndEvent_Id(userId, eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Реєстрацію не знайдено"));
 
-    public void delete(Long id) {
-        repository.deleteById(id);
+        events.findByIdForUpdate(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Подію не знайдено"));
+
+        registrations.delete(reg);
     }
 }

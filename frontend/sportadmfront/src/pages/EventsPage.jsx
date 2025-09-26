@@ -1,247 +1,152 @@
-// src/pages/EventsPage.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
-import { getAllEvents } from "@/services/events";
-import { Calendar, MapPin, Search, Plus } from "lucide-react";
-import { useAuth } from "@/context/AuthContext.jsx";
+import { getAllEvents } from "@/services/events.jsx";
+import { registerForEvent } from "@/services/eventRegistrations.jsx";
+import { useAuth } from "@/context/AuthContext";
 
-/* — утиліти — */
 function pick(...xs) { return xs.find(v => v !== undefined && v !== null && v !== ""); }
 function parseWhen(e) { return pick(e.startAt, e.start_at, e.start, e.date, e.datetime); }
 function toDateSafe(iso) { const d = new Date(iso); return Number.isNaN(d) ? null : d; }
-function fmtDateTime(iso) {
-    if (!iso) return "без дати";
-    const d = toDateSafe(iso);
-    return d ? d.toLocaleString() : String(iso);
-}
-function normalizeRoles(roles) {
-    if (!roles) return [];
-    if (Array.isArray(roles)) return roles;
-    if (typeof roles === "string") return [roles];
-    if (roles && Array.isArray(roles.authorities)) return roles.authorities.map(r => r.authority ?? r);
-    return [];
-}
+function fmtDateTime(iso) { if (!iso) return "без дати"; const d = toDateSafe(iso); return d ? d.toLocaleString() : String(iso); }
 
 export default function EventsPage() {
-    const { user } = useAuth() || {};
-    const [events, setEvents] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
-    const [q, setQ] = useState("");
-    const [upcomingOnly, setUpcomingOnly] = useState(true);
+    const { user } = useAuth();
+    const roles = Array.isArray(user?.roles)
+        ? user.roles
+        : typeof user?.roles === "string"
+            ? user.roles.split(/[\s,]+/).filter(Boolean)
+            : [];
+    const isAdmin = roles.includes("ROLE_ADMIN") || roles.includes("ADMIN");
 
-    const isAdmin = useMemo(() => {
-        const roles = normalizeRoles(user?.roles).map(r => String(r).toUpperCase());
-        return roles.includes("ROLE_ADMIN");
-    }, [user]);
+    const [items, setItems] = useState([]);
+    const [q, setQ] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState("");
 
     useEffect(() => {
-        let cancelled = false;
+        let ignore = false;
         (async () => {
             try {
-                const data = await getAllEvents();
-                if (!cancelled) setEvents(Array.isArray(data) ? data : []);
-            } catch (e) {
-                if (!cancelled) setErr(e?.message || "Помилка");
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
+                setLoading(true);
+                const data = await getAllEvents(q ? { q } : undefined);
+                if (!ignore) setItems(Array.isArray(data) ? data : data?.content || []);
+            } catch (e) { if (!ignore) setErr(e?.message || "Не вдалося завантажити список"); }
+            finally { if (!ignore) setLoading(false); }
         })();
-        return () => { cancelled = true; };
-    }, []);
+        return () => { ignore = true; };
+    }, [q]);
 
     const filtered = useMemo(() => {
-        const now = new Date();
-        const text = q.trim().toLowerCase();
-        return [...events]
-            .filter(e => {
-                if (!text) return true;
-                const name = (pick(e.name, e.title, "") + "").toLowerCase();
-                const loc = (pick(e.location, e.place, "") + "").toLowerCase();
-                return name.includes(text) || loc.includes(text);
-            })
-            .filter(e => {
-                if (!upcomingOnly) return true;
-                const when = parseWhen(e);
-                const d = toDateSafe(when);
-                return !d || d >= now; // без дати теж показуємо
-            })
-            .sort((a, b) => {
-                const da = toDateSafe(parseWhen(a));
-                const db = toDateSafe(parseWhen(b));
-                if (!da && !db) return 0;
-                if (!da) return 1;
-                if (!db) return -1;
-                return da - db; // найближчі вгорі
-            });
-    }, [events, q, upcomingOnly]);
+        if (!q) return items;
+        const s = q.trim().toLowerCase();
+        return items.filter(e => `${e.name||e.title||""} ${e.location||""}`.toLowerCase().includes(s));
+    }, [items, q]);
+
+    const onQuickRegister = useCallback(async (id) => {
+        try {
+            await registerForEvent(id);
+            alert("Зареєстровано");
+        } catch (e) { alert(e?.message || "Помилка реєстрації"); }
+    }, []);
 
     return (
-        <>
+        <div className="container py-4">
             <style>{styles}</style>
-            <div className="dash">
-                <header className="dash__hero">
-                    <div>
-                        <h1 className="dash__title">Події</h1>
-                        <p className="dash__subtitle">Перегляньте список івентів та відкрийте деталі</p>
-                    </div>
-
-                    <div className="toolbar">
-                        <div className="search">
-                            <Search size={18} />
-                            <input
-                                placeholder="Пошук за назвою або локацією"
-                                value={q}
-                                onChange={e => setQ(e.target.value)}
-                            />
-                        </div>
-                        <label className="toggle">
-                            <input
-                                type="checkbox"
-                                checked={upcomingOnly}
-                                onChange={e => setUpcomingOnly(e.target.checked)}
-                            />
-                            <span>Лише майбутні</span>
-                        </label>
-                        {isAdmin && (
-                            <Link to="/events/new" className="btn primary">
-                                <Plus size={18} /> Створити івент
-                            </Link>
-                        )}
-                    </div>
-                </header>
-
-                <section className="dash__section">
-                    {loading && <div className="state">Завантаження…</div>}
-                    {err && <div className="state state--error">Помилка: {String(err)}</div>}
-
-                    {!loading && !err && filtered.length === 0 && (
-                        <div className="state">Івентів не знайдено</div>
-                    )}
-
-                    <div className="grid">
-                        {filtered.map(e => {
-                            const cover = pick(e.coverUrl, e.cover_url, e.cover, e.imageUrl, e.image, "");
-                            const when = parseWhen(e);
-                            const location = pick(e.location, e.place, "—");
-                            const id = e.id ?? e.uuid ?? e._id;
-                            const title = pick(e.name, e.title, "Подія");
-
-                            return (
-                                <article className="card" key={String(id) + String(when) + title}>
-                                    <div
-                                        className="card__media"
-                                        style={{ backgroundImage: cover ? `url(${cover})` : "none" }}
-                                    />
-                                    <div className="card__body">
-                                        <h3 className="card__title">{title}</h3>
-                                        <div className="card__meta">
-                      <span className="chip">
-                        <Calendar size={14} /> {fmtDateTime(when)}
-                      </span>
-                                            <span className="chip chip--ghost">
-                        <MapPin size={14} /> {location}
-                      </span>
-                                        </div>
-                                        <div className="card__footer">
-                                            <Link to={`/events/${id}`} className="btn ghost">Деталі</Link>
-                                        </div>
-                                    </div>
-                                </article>
-                            );
-                        })}
-                    </div>
-                </section>
+            <div className="toolbar">
+                <input className="search" placeholder="Пошук…" value={q} onChange={e=>setQ(e.target.value)} />
+                {isAdmin && <Link to="/events/create" className="btn">Створити івент</Link>}
             </div>
-        </>
+
+            {err && <div className="alert alert-danger">{err}</div>}
+            {loading ? (
+                <div>Завантаження…</div>
+            ) : (
+                <div className="grid">
+                    {filtered.map(ev => (
+                        <div key={ev.id} className="card">
+                            <h4 className="card__title"><Link to={`/events/${ev.id}`}>{ev.name || ev.title || "Подія"}</Link></h4>
+                            <div className="card__meta">
+                                <span className="chip">{fmtDateTime(parseWhen(ev))}</span>
+                                <span className="chip chip--ghost">{ev.location || "—"}</span>
+                            </div>
+                            <div className="card__footer">
+                                <button className="btn ghost" onClick={() => onQuickRegister(ev.id)}>Зареєструватися</button>
+                                <Link to={`/events/${ev.id}`} className="btn">Детальніше</Link>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 
-/* — стилі — */
 const styles = `
-:root{
-  --bg:#0e0f13; --panel:#151821; --panel2:#1b2030;
-  --text:#e8eaf0; --muted:#a7afc2;
-  --brand:#6aa3ff; --brand-2:#7f72ff; --accent:#3ad0a1;
-  --ring:rgba(122,144,255,0.35); --danger:#ff6b6b;
-}
-*{box-sizing:border-box}
-.dash{
-  color:var(--text); padding:24px; min-height:100dvh;
-  background:
-    radial-gradient(1200px 600px at 100% -10%, rgba(127,114,255,0.08), transparent),
-    radial-gradient(900px 500px at -10% 0%, rgba(58,208,161,0.06), transparent),
-    var(--bg);
-}
-.dash__hero{
-  display:flex; gap:16px; align-items:center; justify-content:space-between;
-  padding:18px 20px; border-radius:16px;
-  background:linear-gradient(135deg, rgba(122,144,255,0.12), rgba(58,208,161,0.08)), var(--panel);
-  box-shadow:0 1px 0 #ffffff12 inset, 0 10px 30px rgba(0,0,0,0.25);
-}
-.dash__title{ font-size:22px; margin:0 0 4px }
-.dash__subtitle{ margin:0; color:var(--muted); font-size:14px }
+:root{ --panel:#0f1530; --panel2:#0b1428; --text:#e7eaf2; --muted:#93a0b5 }
+*{ box-sizing:border-box }
+a{ color:inherit; text-decoration:none }
 
-.toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap }
-.search{
-  display:flex; align-items:center; gap:8px; padding:8px 10px; min-width:260px;
-  background:var(--panel2); border:1px solid #ffffff12; border-radius:12px;
-}
-.search input{
-  background:transparent; border:none; outline:none; color:var(--text); width:220px;
-}
-.toggle{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:13px }
-.toggle input{ accent-color:#7a90ff }
+.container{ color:var(--text) }
 
-.btn{
-  display:inline-flex; align-items:center; gap:8px;
-  padding:10px 12px; border-radius:12px; font-weight:600; text-decoration:none;
-  border:1px solid #ffffff22; background:var(--panel2); color:var(--text);
-  transition:transform .1s ease, border-color .1s ease, filter .1s ease;
-}
-.btn:hover{ border-color:var(--ring); transform:translateY(-1px) }
-.btn.primary{
-  border:1px solid #7a90ff55;
-  background:linear-gradient(145deg, #6aa3ff, #7f72ff); color:#fff;
-}
+.toolbar{ display:flex; gap:12px; margin-bottom:16px }
+.search{ flex:1; min-width:280px; padding:10px 12px; border-radius:10px; border:1px solid #ffffff22; background:var(--panel2); color:var(--text) }
 
-.dash__section{ margin-top:18px }
-.state{
-  padding:14px 16px; border-radius:12px; background:var(--panel);
-  border:1px solid #ffffff10; color:var(--muted);
-}
-.state--error{ color:#ffd1d1; background:#3b1e1e; border-color:#ff6b6b33 }
-
-.grid{
-  margin-top:14px;
-  display:grid; gap:14px;
-  grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));
-}
+.grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:14px }
 
 .card{
   background:var(--panel);
-  border:1px solid #ffffff10;
-  border-radius:16px; overflow:hidden;
-  display:grid; grid-template-rows:140px 1fr;
-  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+  border:1px solid #ffffff19;
+  border-radius:14px;
+  padding:14px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  overflow:hidden; /* не дає елементам “вилазити” за межі */
 }
-.card:hover{ transform:translateY(-2px); border-color:var(--ring); box-shadow:0 10px 28px rgba(0,0,0,0.35) }
-.card__media{ background:#10121a center/cover no-repeat }
-.card__body{ padding:12px 12px 14px; display:grid; gap:10px }
-.card__title{ margin:0; font-size:16px }
+
+.card__title{ margin:0 }
 .card__meta{ display:flex; gap:8px; flex-wrap:wrap }
+
 .chip{
   display:inline-flex; align-items:center; gap:6px;
   font-size:12px; padding:4px 8px; border-radius:999px;
-  background:#ffffff08; border:1px solid #ffffff12; color:var(--text);
+  background:#ffffff08; border:1px solid #ffffff12; color:var(--text)
 }
 .chip--ghost{ color:var(--muted) }
-.card__footer{ margin-top:auto; display:flex; justify-content:flex-end }
-.btn.ghost{
-  border:1px solid #ffffff22; background:#ffffff08;
+
+.card__footer{
+  margin-top:auto;
+  display:flex;
+  gap:8px;
+  justify-content:flex-end;
+  align-items:center;
+  flex-wrap:wrap; /* щоб кнопки переносились, а не ламали верстку */
 }
 
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid #7a90ff55;
+  background:linear-gradient(145deg, #6aa3ff, #7f72ff);
+  color:#fff;
+  line-height:1;
+  white-space:nowrap;  /* не переносити текст кнопки */
+  cursor:pointer;
+}
+
+.btn.ghost{
+  background:#ffffff08;
+  border:1px solid #ffffff22;
+}
+
+/* мобільний UX: кнопки стають у рядок на всю ширину */
 @media (max-width:560px){
-  .search{ min-width:unset; width:100% }
+  .grid{ grid-template-columns:1fr }
+  .card__footer{ justify-content:stretch }
+  .card__footer .btn{ flex:1 }
 }
 `;

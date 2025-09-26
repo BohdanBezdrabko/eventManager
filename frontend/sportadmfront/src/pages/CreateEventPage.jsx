@@ -1,7 +1,7 @@
 // src/pages/CreateEventPage.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createEvent } from "@/services/events";
+import { createEvent } from "@/services/events.jsx";
 import { AlertCircle } from "lucide-react";
 
 export default function CreateEventPage() {

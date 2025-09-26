@@ -7,18 +7,32 @@ spring:
   jackson:
     serialization:
       WRITE_DATES_AS_TIMESTAMPS: false
-
-# додай свої datasource/liquibase тут за потреби
+  datasource:
+    url: jdbc:postgresql://localhost:5432/sport_admin
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+  docker:
+    compose:
+      enabled: true
 
 app:
   cors:
     allowed-origins:
-      - http://localhost:5173
       - http://localhost:5175
 
 jwt:
-  # Мінімум 256-біт. Замінити на власний секрет.
-  secret: "change-this-256-bit-secret-change-this-256-bit-secret-"
+  secret: "Y0urSup3r$3cretJWTK3yWith32+CharsMin"
   access-exp-min: 60
   refresh-exp-days: 14
 

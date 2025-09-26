@@ -1,4 +1,3 @@
-// src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { loginUser, registerUser, setToken, getToken, clearToken, userFromToken } from "@/services/auth.jsx";
 
@@ -19,24 +18,24 @@ export function AuthProvider({ children }) {
             } else {
                 setUser(u || null);
             }
-        } else {
-            setUser(null);
         }
         setBooting(false);
     }, []);
 
-    async function login(identifier, password) {
-        const { token, user } = await loginUser(identifier, password);
-        setToken(token);
-        setUser(user);
-        return user;
+    async function login(username, password) {
+        const { token, user } = await loginUser(username, password);
+        if (token) setToken(token);
+        const u = user || userFromToken(token);
+        setUser(u || null);
+        return u;
     }
 
-    async function register(username, password, role = "user", extra = {}) {
-        const { token, user } = await registerUser(username, password, role, extra);
+    async function register(username, password, role) {
+        const { token, user } = await registerUser(username, password, role);
         if (token) setToken(token);
-        setUser(user);
-        return user;
+        const u = user || userFromToken(token);
+        setUser(u || null);
+        return u;
     }
 
     function logout() {

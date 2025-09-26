@@ -1,71 +1,99 @@
-// src/pages/EventDetailPage.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
-import { getEventById } from "@/services/events";
-import { Calendar, MapPin, Users, ArrowLeft } from "lucide-react";
+import { getEventById } from "@/services/events.jsx";
+import {
+    registerForEvent,
+    cancelRegistration,
+    getMyRegistrations,
+} from "@/services/eventRegistrations.jsx";
 
-export default function EventDetailPage() {
+export default function EventDetailsPage() {
     const { id } = useParams();
-    const [event, setEvent] = useState(null);
+    const [ev, setEv] = useState(null);
+    const [registered, setRegistered] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState(null);
+    const [err, setErr] = useState("");
 
     useEffect(() => {
-        let cancelled = false;
+        let off = false;
         (async () => {
             try {
-                const data = await getEventById(id);
-                if (!cancelled) setEvent(data);
+                setLoading(true);
+                const [eventData, myRegs] = await Promise.all([
+                    getEventById(id),
+                    getMyRegistrations(),
+                ]);
+                if (off) return;
+                setEv(eventData);
+                const regIds = new Set(
+                    (Array.isArray(myRegs) ? myRegs : [])
+                        .map((r) => r?.event?.id ?? r?.eventId)
+                        .filter(Boolean)
+                );
+                setRegistered(regIds.has(Number(id)));
             } catch (e) {
-                if (!cancelled) setErr(e.message || "Помилка");
+                if (!off) setErr(e?.message || "Не вдалося завантажити івент");
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!off) setLoading(false);
             }
         })();
-        return () => { cancelled = true; };
+        return () => {
+            off = true;
+        };
+    }, [id]);
+
+    const onRegister = useCallback(async () => {
+        try {
+            await registerForEvent(id);
+            setRegistered(true);
+            // за потреби — перезавантажити подію, щоб оновити лічильник
+            try {
+                const fresh = await getEventById(id);
+                setEv(fresh);
+            } catch {}
+        } catch (e) {
+            setErr(e?.message || "Помилка реєстрації");
+        }
+    }, [id]);
+
+    const onCancel = useCallback(async () => {
+        try {
+            await cancelRegistration(id);
+            setRegistered(false);
+            try {
+                const fresh = await getEventById(id);
+                setEv(fresh);
+            } catch {}
+        } catch (e) {
+            setErr(e?.message || "Помилка скасування");
+        }
     }, [id]);
 
     if (loading) return <div className="container py-4">Завантаження…</div>;
-    if (err) return <div className="container py-4 text-danger">Помилка: {String(err)}</div>;
-    if (!event) return <div className="container py-4">Івент не знайдено</div>;
+    if (err) return <div className="container py-4 text-danger">{err}</div>;
+    if (!ev) return <div className="container py-4">Подію не знайдено</div>;
 
     return (
         <div className="container py-4">
-            <Link to="/events" className="btn btn-light mb-3">
-                <ArrowLeft size={16} /> Повернутися
+            <Link to="/events" className="btn btn-outline-secondary mb-3">
+                ← До списку
             </Link>
-
-            <div className="card shadow-sm">
-                <div className="card-body">
-                    <h3 className="card-title">{event.name}</h3>
-                    <div className="text-muted mb-3 d-flex gap-3 flex-wrap">
-            <span className="d-inline-flex align-items-center gap-1">
-              <Calendar size={16} /> {formatDate(event.date)}
-            </span>
-                        <span className="d-inline-flex align-items-center gap-1">
-              <MapPin size={16} /> {event.location || "—"}
-            </span>
-                        {"capacity" in event || "registeredCount" in event ? (
-                            <span className="d-inline-flex align-items-center gap-1">
-                <Users size={16} /> {event.registeredCount ?? 0}{event.capacity ? ` / ${event.capacity}` : ""}
-              </span>
-                        ) : null}
-                    </div>
-
-                    {event.cover && (
-                        <img src={event.cover} alt="" className="img-fluid rounded mb-3" />
-                    )}
-
-                    <p className="mb-0">{event.description || "Опис відсутній."}</p>
-                </div>
+            <h1 className="mb-2">{ev.name || ev.title || "Подія"}</h1>
+            <div className="text-muted mb-3">
+                {(ev.startAt || ev.date || ev.datetime) ?? "без дати"} • {ev.location || "—"}
+            </div>
+            <p className="mb-4">{ev.description || "Опис відсутній."}</p>
+            <div className="d-flex gap-2">
+                {!registered ? (
+                    <button className="btn btn-primary" onClick={onRegister}>
+                        Зареєструватися
+                    </button>
+                ) : (
+                    <button className="btn btn-outline-danger" onClick={onCancel}>
+                        Скасувати
+                    </button>
+                )}
             </div>
         </div>
     );
-}
-
-function formatDate(iso) {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    if (Number.isNaN(d)) return iso;
-    return d.toLocaleDateString();
 }
