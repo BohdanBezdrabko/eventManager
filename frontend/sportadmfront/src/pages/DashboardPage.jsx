@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { getMyRegistrations } from "@/services/eventRegistrations.jsx";
-import { getEventById } from "@/services/events.jsx";
-import { useAuth } from "@/context/AuthContext";
+import {useEffect, useMemo, useState} from "react";
+import {Link} from "react-router-dom";
+import {getMyRegistrations} from "@/services/eventRegistrations.jsx";
+import {getEventById} from "@/services/events.jsx";
+import {useAuth} from "@/context/AuthContext";
 
 function byStartAsc(a, b) {
     const ta = new Date(a.startAt || 0).getTime() || 0;
@@ -10,7 +10,7 @@ function byStartAsc(a, b) {
     return ta - tb;
 }
 
-function EventItem({ ev }) {
+function EventItem({ev}) {
     const start = ev.startAt || "";
     const capacity = Number(ev.capacity || 0) || "∞";
     const registered = Number(ev.registeredCount || 0) || 0;
@@ -39,7 +39,7 @@ function EventItem({ ev }) {
 }
 
 export default function DashboardPage() {
-    const { user } = useAuth();
+    const {user} = useAuth();
     const roles = Array.isArray(user?.roles)
         ? user.roles
         : typeof user?.roles === "string"
@@ -60,9 +60,6 @@ export default function DashboardPage() {
                 const regs = await getMyRegistrations();
                 if (ignore) return;
 
-                // витягаємо eventId з реєстрації:
-                // або r.event.id якщо бек серіалізує подію,
-                // або r.eventId якщо ви віддаєте DTO/проекцію
                 const ids = Array.from(
                     new Set(
                         (Array.isArray(regs) ? regs : [])
@@ -94,7 +91,7 @@ export default function DashboardPage() {
     }, []);
 
     const now = Date.now();
-    const { upcoming, past } = useMemo(() => {
+    const {upcoming, past} = useMemo(() => {
         const enriched = events.slice().sort(byStartAsc);
         const up = [],
             p = [];
@@ -102,7 +99,7 @@ export default function DashboardPage() {
             const ts = new Date(ev.startAt || 0).getTime();
             (ts && ts >= now ? up : p).push(ev);
         }
-        return { upcoming: up, past: p };
+        return {upcoming: up, past: p};
     }, [events, now]);
 
     return (
@@ -128,7 +125,7 @@ export default function DashboardPage() {
                         ) : (
                             <div className="list-group">
                                 {upcoming.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev} />
+                                    <EventItem key={ev.id} ev={ev}/>
                                 ))}
                             </div>
                         )}
@@ -141,7 +138,7 @@ export default function DashboardPage() {
                         ) : (
                             <div className="list-group">
                                 {past.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev} />
+                                    <EventItem key={ev.id} ev={ev}/>
                                 ))}
                             </div>
                         )}

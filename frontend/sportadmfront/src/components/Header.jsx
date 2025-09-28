@@ -62,7 +62,7 @@ export default function Header() {
                         )}
                         {!booting && user && isAdmin(user) && (
                             <li className="nav-item">
-                                <NavLink to="/events/new" className={linkClass}>Створити івент</NavLink>
+                                <NavLink to="/events/create" className={linkClass}>Створити івент</NavLink>
                             </li>
                         )}
                     </ul>

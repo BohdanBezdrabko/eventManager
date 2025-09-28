@@ -26,7 +26,7 @@ export default function App() {
                             <PrivateRoute><DashboardPage/></PrivateRoute>
                         }/>
 
-                        <Route path="events/new" element={
+                        <Route path="events/create" element={
                             <AdminRoute><CreateEventPage/></AdminRoute>
                         }/>
 
