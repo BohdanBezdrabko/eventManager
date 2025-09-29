@@ -1,6 +1,9 @@
+// dto/EventDto.java
 package com.example.sportadministrationsystem.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
+
 public record EventDto(
         Long id,
         String name,
@@ -9,6 +12,6 @@ public record EventDto(
         Integer capacity,
         String description,
         String coverUrl,
-        Integer registeredCount,
-        LocalDateTime createdAt
+        String category,
+        List<String> tags
 ) {}

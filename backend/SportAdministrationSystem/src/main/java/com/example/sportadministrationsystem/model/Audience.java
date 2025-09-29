@@ -1,5 +1,3 @@
 package com.example.sportadministrationsystem.model;
 
-public enum Status {
-
-}
+public enum Audience {PUBLIC, SUBSCRIBERS}

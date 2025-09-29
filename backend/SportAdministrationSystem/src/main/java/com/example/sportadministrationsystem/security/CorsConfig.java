@@ -1,4 +1,4 @@
-package com.example.sportadministrationsystem.config;
+package com.example.sportadministrationsystem.security;
 
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -22,7 +22,6 @@ public class CorsConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        // Підтримує YAML-списки і рядки "a,b"
         List<String> allowed = Binder.get(env)
                 .bind("app.cors.allowed-origins", Bindable.listOf(String.class))
                 .orElse(List.of("http://localhost:5173", "http://localhost:5175"))

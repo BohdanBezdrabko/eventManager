@@ -6,7 +6,6 @@ import com.example.sportadministrationsystem.service.EventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
@@ -16,11 +15,15 @@ import java.util.List;
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/events")
 public class EventController {
+
     private final EventService eventService;
 
     @GetMapping
-    public ResponseEntity<List<EventDto>> getAllEvents() {
-        return ResponseEntity.ok(eventService.getAllEvents());
+    public ResponseEntity<List<EventDto>> list(
+            @RequestParam(required = false) String category,
+            @RequestParam(required = false) String tag
+    ) {
+        return ResponseEntity.ok(eventService.getAllEvents(category, tag));
     }
 
     @GetMapping("/{id:\\d+}")

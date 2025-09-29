@@ -1,4 +1,4 @@
-package com.example.sportadministrationsystem.config;
+package com.example.sportadministrationsystem.security;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
