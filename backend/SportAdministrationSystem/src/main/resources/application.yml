@@ -30,6 +30,10 @@ app:
   cors:
     allowed-origins:
       - http://localhost:5175
+  dispatch:
+    enabled: true
+    batch-size: 20
+    delay-ms: 60000
 
 jwt:
   secret: "Y0urSup3r$3cretJWTK3yWith32+CharsMin"
@@ -39,3 +43,4 @@ jwt:
 logging:
   level:
     org.springframework.security: INFO
+    com.example.sportadministrationsystem: INFO

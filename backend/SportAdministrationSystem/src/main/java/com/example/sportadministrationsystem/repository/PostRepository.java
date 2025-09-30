@@ -29,4 +29,9 @@ public interface PostRepository extends JpaRepository<Post, Long> {
             for update skip locked
             """, nativeQuery = true)
     List<Post> lockDueForDispatch(@Param("now") LocalDateTime now, @Param("limit") int limit);
+    boolean existsByEvent_IdAndGeneratedIsTrueAndPublishAtAndChannelAndAudience(
+            Long eventId, java.time.LocalDateTime publishAt,
+            com.example.sportadministrationsystem.model.Channel channel,
+            com.example.sportadministrationsystem.model.Audience audience
+    );
 }

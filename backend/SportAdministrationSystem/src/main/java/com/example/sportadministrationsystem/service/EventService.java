@@ -21,7 +21,7 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final TagRepository tagRepository;
-
+    private final PostGenerationService postGenerationService;
     /* ===================== Public API ===================== */
 
     @Transactional(Transactional.TxType.SUPPORTS)
@@ -66,7 +66,7 @@ public class EventService {
     public EventDto create(EventPayload payload) {
         Event e = apply(new Event(), payload);
         Event saved = eventRepository.save(e);
-        // TODO: V8 ensureEventScheduledPosts(saved)
+        postGenerationService.ensureEventScheduledPosts(saved);
         return toDto(saved);
     }
 

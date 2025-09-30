@@ -68,4 +68,6 @@ public interface EventRepository extends JpaRepository<Event, Long>, JpaSpecific
     """)
     List<Event> findAllByCategoryAndTagRaw(@Param("category") String category,
                                            @Param("tag") String tag);
+    java.util.List<com.example.sportadministrationsystem.model.Event>
+    findByStartAtAfter(java.time.LocalDateTime time);
 }
