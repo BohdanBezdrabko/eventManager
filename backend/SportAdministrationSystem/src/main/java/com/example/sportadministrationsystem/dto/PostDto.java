@@ -15,6 +15,7 @@ public record PostDto(
         String error,
         boolean generated,
         LocalDateTime createdAt,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        String telegramChatId
 ) {
 }

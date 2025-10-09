@@ -70,4 +70,7 @@ public interface EventRepository extends JpaRepository<Event, Long>, JpaSpecific
                                            @Param("tag") String tag);
     java.util.List<com.example.sportadministrationsystem.model.Event>
     findByStartAtAfter(java.time.LocalDateTime time);
+
+    @EntityGraph(attributePaths = {"tags"})
+    Optional<Event> findWithTagsById(Long id);
 }

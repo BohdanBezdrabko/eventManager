@@ -1,51 +1,178 @@
-POST http://localhost:8081/auth/register
-Content-Type: application/json
+
+@base = http://localhost:8081
+@json = application/json
+@token = eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiIsInJvbGVzIjoiUk9MRV9BRE1JTiIsImlhdCI6MTc1OTgyNTkzMywiZXhwIjoxNzU5ODI5NTMzfQ.odBk_vB7vAJhCijX-sUTXgQz3_qtDdbu_lvxxB7k2lo
+
+### =========================
+### 0) auth: register → login → me
+### =========================
+
+# 0.1 register admin (один раз; якщо існує — ігноруй)
+POST {{base}}/api/v1/auth/register
+Content-Type: {{json}}
 
 {
-  "username": "ihor",
-  "password": "123456",
-  "role": "participant"
+  "username": "admin",
+  "password": "admin123",
+  "role": "ADMIN"
 }
 
-### Отримати всі реєстрації
-GET http://localhost:8081/registration
-Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
-Content-Type: application/json
+###
 
-
-### Отримати всі івенти по юзеру
-GET http://localhost:8081/registration/user/31
-Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
-Content-Type: application/json
-
-
-### Створити нову реєстрацію
-POST http://localhost:8081/registration
-Authorization: Bearer {'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJpaG9yIiwicm9sZXMiOlsiUk9MRV9VU0VSIl0sImlhdCI6MTc1NjMyMjQ5NCwiZXhwIjoxNzU2MzI2MDk0fQ.rs5PQLZJv2f4EEmBsW5GCXKwcylTkFEHs6dnHKVt08g'}
-Content-Type: application/json
+# 0.2 login → зберігаємо JWT
+POST {{base}}/api/v1/auth/login
+Content-Type: {{json}}
 
 {
-  "user": { "id": 31 },
-  "event": { "id": 2 },
-  "registrationDate": "2025-08-27",
-  "status": "CONFIRMED"
+  "username": "admin",
+  "password": "admin123"
 }
 
+> {% client.global.set("token", response.body.token); %}
 
-### Оновити реєстрацію (id = 5)
-PUT http://localhost:8081/registration/5
+###
+
+# 0.3 me
+GET {{base}}/api/v1/auth/me
 Authorization: Bearer {{token}}
-Content-Type: application/json
+
+### =========================
+### 1) EVENTS (категорія — ENUM, теги — список рядків)
+### =========================
+
+# 1.1 create event (category: SPORTS|EDUCATION|MUSIC|COMMUNITY|OTHER; tags — імена)
+POST {{base}}/api/v1/events
+Content-Type: {{json}}
+Authorization: Bearer {{token}}
 
 {
-  "user": { "id": 1 },
-  "event": { "id": 3 },
-  "registrationDate": "2025-08-30",
-  "status": "CANCELLED"
+  "name": "Demo meetup",
+  "startAt": "2025-10-08T18:00:00",
+  "location": "Kyiv",
+  "capacity": 150,
+  "description": "Short intro to our feature",
+  "coverUrl": "https://example.com/cover.png",
+  "category": "COMMUNITY",
+  "tags": ["demo","meetup"]
 }
 
+> {% client.global.set("eventId", response.body.id); %}
 
-### Видалити реєстрацію (id = 5)
-DELETE http://localhost:8081/registration/5
+###
+
+# 1.2 get by id
+GET {{base}}/api/v1/events/{{eventId}}
 Authorization: Bearer {{token}}
-Content-Type: application/json
+
+###
+
+# 1.3 list with filters (?category=, ?tag=) — обидва необов'язкові
+GET {{base}}/api/v1/events?category=COMMUNITY&tag=meetup
+Authorization: Bearer {{token}}
+
+###
+
+# 1.4 find by name (шлях існує у твоєму EventController)
+GET {{base}}/api/v1/events/by-name/Demo%20meetup
+Authorization: Bearer {{token}}
+
+###
+
+# 1.5 find by location (існуючий шлях)
+GET {{base}}/api/v1/events/by-location/Kyiv
+Authorization: Bearer {{token}}
+
+###
+
+# 1.6 update event (категорію/теги теж через payload)
+PUT {{base}}/api/v1/events/{{eventId}}
+Content-Type: {{json}}
+Authorization: Bearer {{token}}
+
+{
+  "name": "Demo meetup (updated)",
+  "startAt": "2025-10-08T18:30:00",
+  "location": "Kyiv",
+  "capacity": 200,
+  "description": "Updated",
+  "coverUrl": "https://example.com/new.png",
+  "category": "SPORTS",
+  "tags": ["meetup","updated"]
+}
+
+###
+
+# 1.7 delete event
+DELETE {{base}}/api/v1/events/{{eventId}}
+Authorization: Bearer {{token}}
+
+### =========================
+### 2) POSTS (для події)
+### =========================
+# ВАЖЛИВО: PostPayload у твоєму коді = {title, body, publishAt, audience, channel, status?}
+# Нема поля telegramChatId у DTO (воно є в Entity, але не приймається контролером).
+# Значення enum як рядки:
+#   audience: PUBLIC | SUBSCRIBERS
+#   channel:  TELEGRAM | INTERNAL
+#   status:   DRAFT | SCHEDULED | PUBLISHED | FAILED | CANCELED
+
+# 2.1 create post (за замовчуванням DRAFT, якщо status не заданий)
+# create post (без коментарів усередині JSON)
+### create & schedule now
+### create post (NO comments inside JSON)
+POST {{base}}/api/v1/events/{{eventId}}/posts
+Content-Type: {{json}}
+Authorization: Bearer {{token}}
+
+{
+  "title": "Анонс події",
+  "body": "Сьогодні о 18:00 стартуємо!",
+  "publishAt": "2025-10-07T10:45:00",
+  "audience": "PUBLIC",
+  "channel": "TELEGRAM",
+  "status": "SCHEDULED",
+  "telegramChatId": "-1003137847951"
+}
+
+> {% client.global.set("postId", response.body.id); %}
+
+### trigger dispatch now
+POST {{base}}/api/v1/events/{{eventId}}/posts/_dispatch-tick
+Authorization: Bearer {{token}}
+
+### verify
+GET {{base}}/api/v1/events/{{eventId}}/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+
+###
+
+# 2.2 list posts (фільтри ?status=&audience=&channel= — всі рядками)
+GET {{base}}/api/v1/events/{{eventId}}/posts?status=DRAFT
+Authorization: Bearer {{token}}
+
+###
+
+# 2.3 get post
+GET {{base}}/api/v1/events/{{eventId}}/posts/{{postId}}
+Authorization: Bearer {{token}}
+
+###
+
+# 2.4 update post (повний payload PostPayload)
+PUT {{base}}/api/v1/events/{{eventId}}/posts/{{postId}}
+Content-Type: {{json}}
+Authorization: Bearer {{token}}
+
+{
+  "title": "Анонс події",
+  "body": "Сьогодні о 18:00 стартуємо!",
+  "publishAt": "2025-10-08T17:55:00",
+  "audience": "PUBLIC",
+  "channel": "TELEGRAM",
+  "telegramChatId": "-4894126161"
+}
+###
+# 2.6 delete post
+DELETE {{base}}/api/v1/events/{{eventId}}/posts/{{postId}}
+Authorization: Bearer {{token}}

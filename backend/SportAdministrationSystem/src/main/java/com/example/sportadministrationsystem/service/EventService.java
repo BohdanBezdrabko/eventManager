@@ -8,6 +8,7 @@ import com.example.sportadministrationsystem.model.EventCategory;
 import com.example.sportadministrationsystem.model.Tag;
 import com.example.sportadministrationsystem.repository.EventRepository;
 import com.example.sportadministrationsystem.repository.TagRepository;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -157,5 +158,9 @@ public class EventService {
                 category,
                 tagNames
         );
+    }
+    public Event loadEntity(Long id) {
+        return eventRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Event not found: " + id));
     }
 }
