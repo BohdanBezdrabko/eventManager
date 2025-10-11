@@ -18,6 +18,8 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -64,12 +66,34 @@ public class PostService {
     }
 
     public List<PostDto> list(Long eventId, String status, String audience, String channel) {
-        return postRepository.findByEventAndFilters(
-                eventId,
-                status == null || status.isBlank() ? null : parseStatus(status),
-                audience == null || audience.isBlank() ? null : parseAudience(audience),
-                channel == null || channel.isBlank() ? null : parseChannel(channel)
-        ).stream().map(this::toDto).toList();
+        PostStatus s = (status == null || status.isBlank()) ? null : parseStatus(status);
+        Audience a = (audience == null || audience.isBlank()) ? null : parseAudience(audience);
+        Channel c = (channel == null || channel.isBlank()) ? null : parseChannel(channel);
+        return postRepository.findByEventIdAndFilters(eventId, s, a, c)
+                .stream().map(this::toDto).toList();
+    }
+
+    @Transactional
+    public PostDto update(Long eventId, Long postId, PostPayload payload) {
+        Post p = getChecked(eventId, postId);
+        p.setTitle(payload.title());
+        p.setBody(payload.body());
+        p.setPublishAt(payload.publishAt());
+        p.setAudience(parseAudience(payload.audience()));
+        p.setChannel(parseChannel(payload.channel()));
+        p.setTelegramChatId(payload.telegramChatId());
+
+        // (опційно) одразу можемо змінити статус, якщо передано
+        if (payload.status() != null && !payload.status().isBlank()) {
+            PostStatus next = parseStatus(payload.status());
+            validateTransition(p.getStatus(), next);
+            p.setStatus(next);
+            if (next != PostStatus.FAILED) {
+                p.setError(null);
+            }
+        }
+
+        return toDto(postRepository.save(p));
     }
 
     @Transactional
@@ -78,35 +102,8 @@ public class PostService {
         postRepository.delete(p);
     }
 
-    /* -------------------- STATUS -------------------- */
+    /* -------------------- Статуси/публікація -------------------- */
 
-    @Transactional
-    public PostDto changeStatus(Long eventId, Long postId, String statusStr, String error) {
-        Post p = getChecked(eventId, postId);
-        PostStatus next = parseStatus(statusStr);
-        validateTransition(p.getStatus(), next);
-        p.setStatus(next);
-        if (next == PostStatus.FAILED) {
-            p.setError(error != null && !error.isBlank() ? error : "failed");
-        } else {
-            p.setError(null);
-        }
-        return toDto(postRepository.save(p));
-    }
-
-    private void validateTransition(PostStatus current, PostStatus next) {
-        boolean ok =
-                (current == PostStatus.DRAFT     && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
-                        (current == PostStatus.SCHEDULED && (next == PostStatus.PUBLISHED || next == PostStatus.CANCELED || next == PostStatus.FAILED)) ||
-                        (current == PostStatus.FAILED    && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
-                        (current == PostStatus.CANCELED  && (next == PostStatus.SCHEDULED)) ||
-                        (current == PostStatus.PUBLISHED && (next == PostStatus.PUBLISHED));
-        if (!ok) throw new IllegalStateException("Illegal status transition: " + current + " -> " + next);
-    }
-
-    /* -------------------- DISPATCH -------------------- */
-
-    /** Ручна публікація одного поста (ігнорує publishAt) */
     @Transactional
     public PostDto publishNow(Long eventId, Long postId) {
         Post p = getChecked(eventId, postId);
@@ -142,27 +139,58 @@ public class PostService {
         return sent;
     }
 
-    /** Один канал відправки, може кинути TelegramApiException (checked) */
+    @Transactional
+    public PostDto changeStatus(Long eventId, Long postId, String statusStr, String error) {
+        Post p = getChecked(eventId, postId);
+        PostStatus next = parseStatus(statusStr);
+        validateTransition(p.getStatus(), next);
+        p.setStatus(next);
+        if (next == PostStatus.FAILED) {
+            p.setError(error != null && !error.isBlank() ? error : "failed");
+        } else {
+            p.setError(null);
+        }
+        return toDto(postRepository.save(p));
+    }
+
+    private void validateTransition(PostStatus current, PostStatus next) {
+        boolean ok =
+                (current == PostStatus.DRAFT     && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
+                        (current == PostStatus.SCHEDULED && (next == PostStatus.PUBLISHED || next == PostStatus.CANCELED || next == PostStatus.FAILED)) ||
+                        (current == PostStatus.FAILED    && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
+                        (current == PostStatus.CANCELED  && (next == PostStatus.SCHEDULED));
+        if (!ok) {
+            throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+        }
+    }
+
+    /* -------------------- Helpers -------------------- */
+
     private void sendToChannel(Post p) throws TelegramApiException {
         if (p.getChannel() == Channel.TELEGRAM) {
             String chatId = (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank())
                     ? p.getTelegramChatId()
                     : defaultChatId;
             if (chatId == null || chatId.isBlank()) {
-                throw new TelegramApiException("Telegram chatId is not set (post.telegramChatId and telegram.bot.chat-id are empty)");
+                throw new TelegramApiException("Telegram chatId isn't set (post.telegramChatId and telegram.bot.chat-id are empty)");
             }
-            telegramService.sendMessage(chatId, p.getBody());
+            Long eventId = (p.getEvent() != null) ? p.getEvent().getId() : null;
+            if (eventId != null) {
+                telegramService.sendMessage(chatId, p.getBody(),
+                        telegramService.eventKeyboard(eventId, false));
+            } else {
+                telegramService.sendMessage(chatId, p.getBody());
+            }
         } else {
             throw new IllegalStateException("Unsupported channel: " + p.getChannel());
         }
     }
 
-    /* -------------------- helpers -------------------- */
-
     private Post getChecked(Long eventId, Long postId) {
-        Post p = postRepository.findById(postId).orElseThrow(() -> new NotFoundException("Post not found: " + postId));
-        if (!p.getEvent().getId().equals(eventId)) {
-            throw new NotFoundException("Post " + postId + " doesn't belong to event " + eventId);
+        Post p = postRepository.findById(postId)
+                .orElseThrow(() -> new NotFoundException("Post not found: " + postId));
+        if (!Objects.equals(p.getEvent().getId(), eventId)) {
+            throw new NotFoundException("Post " + postId + " does not belong to event " + eventId);
         }
         return p;
     }
@@ -187,43 +215,26 @@ public class PostService {
     }
 
     private PostStatus parseStatus(String s) {
-        try { return PostStatus.valueOf(s.toUpperCase()); }
-        catch (Exception e) { throw new IllegalArgumentException("Unknown status: " + s); }
+        try {
+            return PostStatus.valueOf(s.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unknown status: " + s);
+        }
     }
 
     private Audience parseAudience(String s) {
-        try { return Audience.valueOf(s.toUpperCase()); }
-        catch (Exception e) { throw new IllegalArgumentException("Unknown audience: " + s); }
+        try {
+            return Audience.valueOf(s.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unknown audience: " + s);
+        }
     }
 
     private Channel parseChannel(String s) {
-        try { return Channel.valueOf(s.toUpperCase()); }
-        catch (Exception e) { throw new IllegalArgumentException("Unknown channel: " + s); }
-    }
-    @jakarta.transaction.Transactional
-    public PostDto update(Long eventId, Long postId, PostPayload payload) {
-        Post p = getChecked(eventId, postId);
-
-        p.setTitle(payload.title());
-        p.setBody(payload.body());
-        p.setPublishAt(payload.publishAt());
-        p.setAudience(parseAudience(payload.audience()));
-        p.setChannel(parseChannel(payload.channel()));
-
-        // оновлення telegramChatId (порожній рядок = очищаємо override)
-        String chat = payload.telegramChatId();
-        p.setTelegramChatId((chat != null && !chat.isBlank()) ? chat : null);
-
-        // (опційно) одразу можемо змінити статус, якщо передано
-        if (payload.status() != null && !payload.status().isBlank()) {
-            PostStatus next = parseStatus(payload.status());
-            validateTransition(p.getStatus(), next);
-            p.setStatus(next);
-            if (next != PostStatus.FAILED) {
-                p.setError(null);
-            }
+        try {
+            return Channel.valueOf(s.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Unknown channel: " + s);
         }
-
-        return toDto(postRepository.save(p));
     }
 }

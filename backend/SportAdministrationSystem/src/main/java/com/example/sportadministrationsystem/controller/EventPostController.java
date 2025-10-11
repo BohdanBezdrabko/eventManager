@@ -37,14 +37,13 @@ public class EventPostController {
         return ResponseEntity.ok(postService.list(eventId, status, audience, channel));
     }
 
-    /** GET one */
+    /** GET */
     @GetMapping("/{postId:\\d+}")
-    public ResponseEntity<PostDto> get(@PathVariable Long eventId,
-                                       @PathVariable Long postId) {
+    public ResponseEntity<PostDto> get(@PathVariable Long eventId, @PathVariable Long postId) {
         return ResponseEntity.ok(postService.get(eventId, postId));
     }
 
-    /** UPDATE (оновлює також telegramChatId) */
+    /** UPDATE */
     @PutMapping("/{postId:\\d+}")
     public ResponseEntity<PostDto> update(@PathVariable Long eventId,
                                           @PathVariable Long postId,
@@ -54,22 +53,22 @@ public class EventPostController {
 
     /** PATCH status */
     @PatchMapping("/{postId:\\d+}/status")
-    public ResponseEntity<PostDto> changeStatus(@PathVariable Long eventId,
-                                                @PathVariable Long postId,
-                                                @Valid @RequestBody PostStatusUpdateRequest req) {
+    public ResponseEntity<PostDto> patchStatus(@PathVariable Long eventId,
+                                               @PathVariable Long postId,
+                                               @RequestBody @Valid PostStatusUpdateRequest req) {
         return ResponseEntity.ok(postService.changeStatus(eventId, postId, req.status(), req.error()));
     }
 
-    /** Publish now (ручна публікація) */
+    /** Publish now (ignores publishAt) */
     @PostMapping("/{postId:\\d+}/publish-now")
-    public ResponseEntity<PostDto> publishNow(@PathVariable Long eventId,
-                                              @PathVariable Long postId) {
+    public ResponseEntity<PostDto> publishNow(@PathVariable Long eventId, @PathVariable Long postId) {
         return ResponseEntity.ok(postService.publishNow(eventId, postId));
     }
 
     /** Ручний запуск диспатчу прострочених */
     @PostMapping("/_dispatch-tick")
-    public ResponseEntity<Integer> dispatchTick() {
+    public ResponseEntity<Integer> dispatchTick(@PathVariable Long eventId) {
+        // Лишаємо через PostService, як у тебе було.
         return ResponseEntity.ok(postService.dispatchDue());
     }
 
