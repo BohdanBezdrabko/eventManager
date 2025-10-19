@@ -1,6 +1,8 @@
 package com.example.sportadministrationsystem.service;
 
 import com.example.sportadministrationsystem.model.Audience;
+import com.example.sportadministrationsystem.model.Channel;
+import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.model.Post;
 import com.example.sportadministrationsystem.model.PostStatus;
@@ -9,117 +11,136 @@ import com.example.sportadministrationsystem.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
+@RequiredArgsConstructor
 public class PostDispatchService {
 
-    private final PostRepository posts;
-    private final EventSubscriptionRepository subscriptions;
-    private final TelegramService telegram;
+    /** Більше НЕ інжектимо AbsSender — напряму використовуємо TelegramService. */
+    private final TelegramService telegramService;
 
-    /** Дефолтний chatId (наприклад, канал), якщо не задано у пості. */
+    private final PostRepository postRepository;
+    private final EventSubscriptionRepository subscriptionRepository;
+
+    /**
+     * Значення за замовчуванням для публічного каналу/чату, якщо у пості не задано.
+     * Може бути як "-1001234567890", так і @channelUsername — але для API краще ID.
+     */
     @Value("${telegram.bot.chat-id:}")
-    private String defaultChatId;
+    private String defaultChannelChatId;
 
-    /** Розмір батчу на один тік */
-    @Value("${dispatch.batch-size:50}")
-    private int batchSize;
-
-    /** Головний тікер розсилки — бере SCHEDULED, де publishAt <= now. */
-    @Scheduled(fixedDelayString = "${dispatch.tick-ms:5000}")
-    public void scheduledTick() {
-        int sent = dispatchTick();
-        if (sent > 0) {
-            log.info("PostDispatchService: sent {}", sent);
-        }
-    }
-
-    /** Виконує один тік розсилки та повертає кількість успішно опублікованих постів. */
-    public int dispatchTick() {
-        LocalDateTime now = LocalDateTime.now();
-        List<Post> due = posts.findPostsToDispatch(PostStatus.SCHEDULED, now);
-        int published = 0;
-        for (Post p : due.stream().limit(batchSize).toList()) {
-            try {
-                switch (p.getAudience()) {
-                    case PUBLIC -> published += dispatchPublic(p);
-                    case SUBSCRIBERS -> published += dispatchSubscribers(p);
-                    default -> {
-                        p.setStatus(PostStatus.FAILED);
-                        p.setError("Unsupported audience: " + p.getAudience());
-                        posts.save(p);
-                    }
-                }
-            } catch (Exception e) {
-                p.setStatus(PostStatus.FAILED);
-                p.setError(e.getMessage());
-                posts.save(p);
-                log.warn("Dispatch failed for post #{}: {}", p.getId(), e.getMessage());
+    /**
+     * Відправляє пост згідно з його каналом/аудиторією. Оновлює статус/помилку.
+     */
+    @Transactional
+    public void dispatch(Post post) {
+        try {
+            int sentCount;
+            if (post.getChannel() != Channel.TELEGRAM) {
+                throw new IllegalStateException("Unsupported channel: " + post.getChannel());
             }
+
+            if (post.getAudience() == Audience.PUBLIC) {
+                sentCount = dispatchPublic(post);
+            } else if (post.getAudience() == Audience.SUBSCRIBERS) {
+                sentCount = dispatchSubscribers(post);
+            } else {
+                throw new IllegalStateException("Unsupported audience: " + post.getAudience());
+            }
+
+            log.info("Post #{} delivered to {} target(s).", post.getId(), sentCount);
+            post.setStatus(PostStatus.PUBLISHED);
+            post.setError(null);
+        } catch (Exception e) {
+            log.warn("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
+            post.setStatus(PostStatus.FAILED);
+            post.setError(shorten(e.getMessage(), 500));
         }
-        return published;
+
+        postRepository.save(post);
     }
 
+    /** Відправка у конкретний канал/чат (PUBLIC). */
     private int dispatchPublic(Post p) throws TelegramApiException {
-        String chatId = (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank())
-                ? p.getTelegramChatId()
-                : defaultChatId;
-        if (chatId == null || chatId.isBlank()) {
-            p.setStatus(PostStatus.FAILED);
-            p.setError("No Telegram chat configured for PUBLIC post (post.telegramChatId or telegram.bot.chat-id).");
-            posts.save(p);
-            return 0;
-        }
-        Long eventId = p.getEvent() != null ? p.getEvent().getId() : null;
-        if (eventId != null) {
-            telegram.sendMessage(chatId, p.getBody(), telegram.eventKeyboard(eventId, false));
-        } else {
-            telegram.sendMessage(chatId, p.getBody());
-        }
-        p.setStatus(PostStatus.PUBLISHED);
-        p.setError(null);
-        posts.save(p);
+        String chatId = resolveTargetChatId(p);
+        String text = buildText(p);
+        InlineKeyboardMarkup kb = (p.getEvent() != null && p.getEvent().getId() != null)
+                ? telegramService.eventKeyboard(p.getEvent().getId(), false)
+                : null;
+
+        telegramService.sendMessage(chatId, text, kb);
         return 1;
     }
 
+    /**
+     * Відправка всім Telegram-передплатникам події (SUBSCRIBERS).
+     * Використовує findSubscriberChatIds(...) з репозиторію.
+     */
     private int dispatchSubscribers(Post p) {
-        Long eventId = p.getEvent() != null ? p.getEvent().getId() : null;
-        if (eventId == null) {
-            p.setStatus(PostStatus.FAILED);
-            p.setError("SUBSCRIBERS post must be linked to an Event.");
-            posts.save(p);
+        Event event = requireEvent(p);
+
+        List<Long> chatIds = subscriptionRepository.findSubscriberChatIds(
+                event.getId(),
+                Messenger.TELEGRAM.name()
+        );
+
+        int sent = 0;
+        if (chatIds == null || chatIds.isEmpty()) {
+            log.info("No Telegram subscribers for event #{}", event.getId());
             return 0;
         }
-        List<Long> chatIds = subscriptions.findSubscriberChatIds(eventId, Messenger.TELEGRAM.name());
-        int ok = 0, fail = 0;
+
+        String text = buildText(p);
+        InlineKeyboardMarkup kb = telegramService.eventKeyboard(event.getId(), true);
+
         for (Long chatId : chatIds) {
             try {
-                telegram.sendMessage(String.valueOf(chatId), p.getBody(), telegram.eventKeyboard(eventId, true));
-                ok++;
-            } catch (TelegramApiException e) {
-                fail++;
-                log.warn("Dispatch to {} failed for post #{}: {}", chatId, p.getId(), e.getMessage());
+                telegramService.sendMessage(String.valueOf(chatId), text, kb);
+                sent++;
+            } catch (TelegramApiException te) {
+                log.warn("Delivery to chat {} failed: {}", chatId, te.getMessage());
             }
         }
-        if (fail == 0) {
-            p.setStatus(PostStatus.PUBLISHED);
-            p.setError(null);
-        } else if (ok > 0) {
-            p.setStatus(PostStatus.PUBLISHED); // частковий успіх
-            p.setError("Delivered to some subscribers; failures: " + fail);
-        } else {
-            p.setStatus(PostStatus.FAILED);
-            p.setError("No deliveries succeeded to subscribers.");
+        return sent;
+    }
+
+    /** Якщо у пості задано кастомний telegramChatId — використовуємо його, інакше беремо дефолт з application.yml. */
+    private String resolveTargetChatId(Post p) {
+        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) {
+            return p.getTelegramChatId();
         }
-        posts.save(p);
-        return ok > 0 ? 1 : 0;
+        if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) {
+            return defaultChannelChatId;
+        }
+        throw new IllegalStateException("No target Telegram chat id configured for PUBLIC post");
+    }
+
+    /** Текст повідомлення (заголовок + тіло). */
+    private String buildText(Post p) {
+        if (p.getTitle() != null && !p.getTitle().isBlank()) {
+            return "⭐ " + p.getTitle() + "\n\n" + (p.getBody() == null ? "" : p.getBody());
+        }
+        return p.getBody() == null ? "" : p.getBody();
+    }
+
+    private Event requireEvent(Post p) {
+        Event e = p.getEvent();
+        if (e == null || e.getId() == null) {
+            throw new IllegalStateException("Post must be linked to an Event for this operation");
+        }
+        return e;
+    }
+
+    private static String shorten(String s, int max) {
+        if (s == null) return null;
+        if (s.length() <= max) return s;
+        return s.substring(0, max - 1) + "…";
     }
 }

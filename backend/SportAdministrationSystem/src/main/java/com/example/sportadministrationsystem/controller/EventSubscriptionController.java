@@ -1,15 +1,19 @@
 package com.example.sportadministrationsystem.controller;
 
-import com.example.sportadministrationsystem.model.*;
-import com.example.sportadministrationsystem.repository.*;
+import com.example.sportadministrationsystem.model.Event;
+import com.example.sportadministrationsystem.model.EventSubscription;
+import com.example.sportadministrationsystem.model.Messenger;
+import com.example.sportadministrationsystem.model.User;
+import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
+import com.example.sportadministrationsystem.repository.UserRepository;
+import com.example.sportadministrationsystem.repository.UserTelegramRepository;
 import com.example.sportadministrationsystem.service.EventService;
-import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
 
 @RestController
 @RequiredArgsConstructor
@@ -21,46 +25,49 @@ public class EventSubscriptionController {
     private final UserTelegramRepository userTelegramRepository;
     private final EventSubscriptionRepository subscriptionRepository;
 
-    /** Підписатися на івент (в особисті повідомлення Telegram) */
-    @PostMapping("/telegram")
+    /** Підписатися (Telegram) поточним користувачем */
+    @PostMapping("/subscribe")
     public ResponseEntity<Void> subscribe(@PathVariable Long eventId, Authentication auth) {
         Event event = eventService.loadEntity(eventId);
         User user = userRepository.findByUsername(auth.getName())
                 .orElseThrow(() -> new IllegalStateException("User not found"));
 
-        userTelegramRepository.findByUser(user)
-                .orElseThrow(() -> new IllegalStateException("Спочатку підключіть Telegram у профілі."));
+        // Вимога: лінк до Telegram має існувати
+        boolean linked = userTelegramRepository.findByUser(user).isPresent();
+        if (!linked) {
+            return ResponseEntity.badRequest().build();
+        }
 
-        subscriptionRepository.findByEventAndUserAndMessenger(event, user, Messenger.TELEGRAM)
-                .ifPresentOrElse(es -> {
-                    es.setActive(true);
-                    subscriptionRepository.save(es);
-                }, () -> {
-                    subscriptionRepository.save(EventSubscription.builder()
-                            .event(event).user(user)
-                            .messenger(Messenger.TELEGRAM)
-                            .active(true)
-                            .createdAt(LocalDateTime.now())
-                            .build());
-                });
+        EventSubscription sub = subscriptionRepository
+                .findByEventAndUserAndMessenger(event, user, Messenger.TELEGRAM)
+                .orElseGet(() -> EventSubscription.builder()
+                        .event(event)
+                        .user(user)
+                        .messenger(Messenger.TELEGRAM)
+                        .active(true)
+                        .build());
+
+        sub.setActive(true);
+        subscriptionRepository.save(sub);
 
         return ResponseEntity.noContent().build();
     }
 
-    /** Відписатися від івенту (перестати отримувати DM) */
-    @DeleteMapping("/telegram")
+    /** Відписатися (Telegram) поточним користувачем */
+    @DeleteMapping("/unsubscribe")
     public ResponseEntity<Void> unsubscribe(@PathVariable Long eventId, Authentication auth) {
         Event event = eventService.loadEntity(eventId);
         User user = userRepository.findByUsername(auth.getName())
                 .orElseThrow(() -> new IllegalStateException("User not found"));
 
         subscriptionRepository.findByEventAndUserAndMessenger(event, user, Messenger.TELEGRAM)
-                .ifPresent(subscriptionRepository::delete); // простіше: немає рядка = немає підписки
+                .ifPresent(es -> {
+                    es.setActive(false);
+                    subscriptionRepository.save(es);
+                });
 
         return ResponseEntity.noContent().build();
     }
-
-    public record MySubscriptionStatus(@NotNull boolean linked, @NotNull boolean subscribed) {}
 
     /** Статус підключення і підписки поточного користувача для конкретного івенту */
     @GetMapping("/my")
@@ -74,5 +81,12 @@ public class EventSubscriptionController {
                 .existsByEventAndUserAndMessengerAndActiveIsTrue(event, user, Messenger.TELEGRAM);
 
         return ResponseEntity.ok(new MySubscriptionStatus(linked, subscribed));
+    }
+
+    @Data
+    @AllArgsConstructor
+    public static class MySubscriptionStatus {
+        private boolean linked;
+        private boolean subscribed;
     }
 }

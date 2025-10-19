@@ -1,27 +1,38 @@
 # calls.http — End-to-end & diagnostics for Event → Post → Telegram button
 #
-# Prereqs:
-# 1) Server is running (default http://localhost:8081)
-# 2) Telegram bot configured in application.yml (telegram.bot.username/token)
-# 3) EITHER set telegram.bot.chat-id in config OR provide per-post telegramChatId below
-# 4) Bot має права постити/керувати повідомленнями в каналі/групі
+# Repo mapping (matched to your code):
+# - Auth:           /api/v1/auth  (register, login, me)
+# - Events:         /api/v1/events
+# - Posts:          /api/v1/events/{eventId}/posts   (create, get, update, publish-now, delete, _dispatch-tick)
+# - Posts (query):  /api/v1/events/{eventId}/posts   (list with filters), /api/v1/events/{eventId}/tree
+# - Registrations:  /api/v1/registrations            (my/{eventId}, event-id/{eventId}, user-id/{userId})
+# - Telegram link:  /api/v1/telegram/link-url
+# - Subs (Telegram):/api/v1/events/{eventId}/subscriptions/{telegram|my}
 #
-# Notes:
-# - Run top→down. Логіни продубльовані: спершу register, якщо юзер існує — використай закоментований login.
-# - {{$isoTimestamp}} — динамічний ISO-час VS Code REST Client.
-
+# — Notes —
+# * Works with VS Code REST Client or IntelliJ HTTP Client.
+# * {{$isoTimestamp}} is provided by the client; adjust if needed.
+# * The “Press button in Telegram” step can’t be automated via REST (that’s a callback query to your bot).
+# * For SUBSCRIBERS flow the user must first link Telegram (deep-link) and then subscribe via REST.
+#
+# Prereqs:
+# 1) Server running (default http://localhost:8081)
+# 2) In application.yml you have telegram.bot.username/token set.
+# 3) For PUBLIC posts either provide per-post telegramChatId or set telegram.bot.chat-id in config.
+# 4) Bot is admin in the channel/group.
+#
 @baseUrl = http://localhost:8081
 
-@admin_username = admin2
+@admin_username = admin4
 @admin_password = adm1nPass!
 
 @member_username = member1
 @member_password = memb3rPass!
 
-# Якщо НЕ маєш telegram.bot.chat-id у конфігурації — вкажи тут ID каналу/групи
+# If you do NOT have telegram.bot.chat-id in application.yml, set your channel/group id here:
 @telegram_chat_id = -1003137847951
 
-### 0) Health
+### 0) Health (optional, only if Actuator is enabled)
 GET {{baseUrl}}/actuator/health
 
 ### 1) Register ADMIN (auto-gets token)
@@ -57,7 +68,6 @@ Content-Type: application/json
 {
   "name": "Demo Open Training",
   "startAt": "{{$isoTimestamp}}",
-  "endAt": null,
   "location": "Main Hall",
   "capacity": 30,
   "description": "Intro training session (calls.http)",
@@ -71,14 +81,15 @@ Content-Type: application/json
 GET {{baseUrl}}/api/v1/events/{{event_id}}
 Authorization: Bearer {{admin_access_token}}
 
-### 3) Create PUBLIC TELEGRAM POST (Scheduled, per-post chatId)
+### 3) Create PUBLIC TELEGRAM POST (per-post chatId override)
+# Uses your DTO: PostPayload(title, body, publishAt, audience, channel, status?, telegramChatId?)
 POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
 Authorization: Bearer {{admin_access_token}}
 Content-Type: application/json
 
 {
   "title": "Open training today 💪",
-  "body": "Натисни «Зареєструватись» під цим постом.",
+  "body": "Натисни «Записатись» під цим постом, реєстрація працює БЕЗ старту бота.",
   "publishAt": "{{$isoTimestamp}}",
   "audience": "PUBLIC",
   "channel": "TELEGRAM",
@@ -87,7 +98,7 @@ Content-Type: application/json
 }
 > {% client.global.set("post_id", response.body.id); %}
 
-### 3.1) List POSTS (no filters)
+### 3.1) List POSTS (no filters) — via EventPostQueryController
 GET {{baseUrl}}/api/v1/events/{{event_id}}/posts
 Authorization: Bearer {{admin_access_token}}
 
@@ -127,7 +138,7 @@ Authorization: Bearer {{admin_access_token}}
 GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_scheduled}}
 Authorization: Bearer {{admin_access_token}}
 
-### 3.8) (Optional) Negative: PUBLIC post WITHOUT chatId (should fail if no telegram.bot.chat-id in config)
+### 3.8) (Optional negative) PUBLIC post WITHOUT chatId (should fail if no telegram.bot.chat-id in config)
 # POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
 # Authorization: Bearer {{admin_access_token}}
 # Content-Type: application/json
@@ -163,64 +174,80 @@ Content-Type: application/json
 # }
 # > {% client.global.set("member_access_token", response.body.accessToken); %}
 
-### 4.2) Get Telegram deep-link for MEMBER
+### 4.2) Get Telegram deep-link for MEMBER (to enable DMs + subs)
 GET {{baseUrl}}/api/v1/telegram/link-url
 Authorization: Bearer {{member_access_token}}
 
 ### ——— Manual step in Telegram ———
-# Open the URL above in Telegram -> press **Start** to link.
-# In your channel/group, open the published message and press **“Записатись”**.
-# Expect a success toast. For unsubscribe, press **“Скасувати реєстрацію”**.
+#  A) Open the URL above in Telegram -> press **Start** (links your account).
+#  B) In your channel/group, open the published message and press **“Записатись”**.
+#     Expected: success toast from callback + keyboard toggles to “Скасувати реєстрацію”.
+#  C) (Shadow account scenario) If a user presses the button WITHOUT ever starting the bot:
+#     your bot handles the callback and auto-provisions a shadow user (TelegramAccountProvisioner),
+#     then creates the registration. Confirmation is shown via callback answer; DM may not be possible.
+#
+#  After pressing the button, continue below to verify via REST as ADMIN.
 
-### 5) Verify REGISTRATIONS (ADMIN)
+### 5) Verify REGISTRATIONS (ADMIN sees all)
 GET {{baseUrl}}/api/v1/registrations/event-id/{{event_id}}
 Authorization: Bearer {{admin_access_token}}
 
-### 5.1) Verify EVENT counters (if your API returns them)
-GET {{baseUrl}}/api/v1/events/{{event_id}}
-Authorization: Bearer {{admin_access_token}}
+### 5.1) (Optional) Member’s own registrations via REST (not the shadow user)
+GET {{baseUrl}}/api/v1/registrations/my
+Authorization: Bearer {{member_access_token}}
 
-### 6) (Optional) Cancel registration via REST (equivalent of the Telegram “Скасувати”)
+### 6) (Optional) Cancel registration via REST (equivalent of Telegram “Скасувати”)
 DELETE {{baseUrl}}/api/v1/registrations/my/{{event_id}}
 Authorization: Bearer {{member_access_token}}
 
-### 6.1) Check registrations again
+### 6.1) Check registrations again (ADMIN)
 GET {{baseUrl}}/api/v1/registrations/event-id/{{event_id}}
 Authorization: Bearer {{admin_access_token}}
 
-### 7) (Optional) SUBSCRIBERS-post flow
-# Цей розділ має сенс, якщо у вас є механізм підписок на івент (EventSubscription)
-# і вже є хоча б один активний підписник у БД (es.active=true) з Messenger=TELEGRAM.
-# Інакше розсилка “audience=SUBSCRIBERS” нікого не знайде.
+### 7) (Optional) SUBSCRIBERS broadcast flow
+# Requires MEMBER to have linked Telegram (step 4.2) and to subscribe to the event.
 #
-# 7.1) Create SUBSCRIBERS post
-# POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
-# Authorization: Bearer {{admin_access_token}}
-# Content-Type: application/json
-#
-# {
-#   "title": "Для підписників 🎯",
-#   "body": "Повідомлення тільки підписникам події.",
-#   "publishAt": "{{$isoTimestamp}}",
-#   "audience": "SUBSCRIBERS",
-#   "channel": "TELEGRAM",
-#   "status": "SCHEDULED"
-# }
-# > {% client.global.set("post_id_subs", response.body.id); %}
-#
-# 7.2) Dispatch tick (надсилає SUBSCRIBERS)
-# POST {{baseUrl}}/api/v1/events/{{event_id}}/posts/_dispatch-tick
-# Authorization: Bearer {{admin_access_token}}
-#
-# 7.3) Verify post status
-# GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_subs}}
-# Authorization: Bearer {{admin_access_token}}
+### 7.1) Subscribe MEMBER to the event on Telegram (creates/activates EventSubscription)
+POST {{baseUrl}}/api/v1/events/{{event_id}}/subscriptions/telegram
+Authorization: Bearer {{member_access_token}}
+
+### 7.2) Check MEMBER subscription/link status
+GET {{baseUrl}}/api/v1/events/{{event_id}}/subscriptions/my
+Authorization: Bearer {{member_access_token}}
+
+### 7.3) Create SUBSCRIBERS-only post
+POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
+Authorization: Bearer {{admin_access_token}}
+Content-Type: application/json
+
+{
+  "title": "Для підписників 🎯",
+  "body": "Лише підписникам події у приватні повідомлення.",
+  "publishAt": "{{$isoTimestamp}}",
+  "audience": "SUBSCRIBERS",
+  "channel": "TELEGRAM",
+  "status": "SCHEDULED"
+}
+> {% client.global.set("post_id_subs", response.body.id); %}
+
+### 7.4) Dispatch tick (sends SUBSCRIBERS post to linked+subscribed users)
+POST {{baseUrl}}/api/v1/events/{{event_id}}/posts/_dispatch-tick
+Authorization: Bearer {{admin_access_token}}
+
+### 7.5) Verify SUBSCRIBERS post status
+GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_subs}}
+Authorization: Bearer {{admin_access_token}}
+
+### 7.6) Unsubscribe MEMBER (cleanup)
+DELETE {{baseUrl}}/api/v1/events/{{event_id}}/subscriptions/telegram
+Authorization: Bearer {{member_access_token}}
 
 ### 8) Cleanup (optional)
 # DELETE post(s)
 # DELETE {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id}}
 # Authorization: Bearer {{admin_access_token}}
 #
+# if defined:
 # DELETE {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_scheduled}}
 # Authorization: Bearer {{admin_access_token}}
 #
