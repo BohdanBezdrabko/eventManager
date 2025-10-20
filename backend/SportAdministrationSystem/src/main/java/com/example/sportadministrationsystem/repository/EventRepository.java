@@ -2,75 +2,60 @@ package com.example.sportadministrationsystem.repository;
 
 import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.model.EventCategory;
-import jakarta.persistence.LockModeType;
-import org.springframework.data.jpa.repository.*;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
 
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
-public interface EventRepository extends JpaRepository<Event, Long>, JpaSpecificationExecutor<Event> {
+@Repository
+public interface EventRepository extends JpaRepository<Event, Long> {
 
-    // Базові пошуки
-    Optional<Event> findByName(String name);
-    List<Event> findAllByNameIgnoreCase(String name);
-    List<Event> findAllByLocationIgnoreCase(String location);
-
-    // "contains" + одразу підвантажуємо теги
-    @EntityGraph(attributePaths = {"tags"})
-    List<Event> findByNameContainingIgnoreCase(String name);
-
-    @EntityGraph(attributePaths = {"tags"})
-    List<Event> findByLocationContainingIgnoreCase(String location);
-
-    // Перевірки дублікатів
-    boolean existsByNameIgnoreCase(String name);
-    boolean existsByNameIgnoreCaseAndStartAt(String name, LocalDateTime startAt);
-
-    // Завантаження з тегами
-    @EntityGraph(attributePaths = {"tags"})
-    @Query("select e from Event e where e.id = :id")
-    Optional<Event> findByIdWithTags(@Param("id") Long id);
-
-    // Повний список з тегами (для списку без фільтрів)
-    @EntityGraph(attributePaths = {"tags"})
-    @Query("select e from Event e")
+    /** Завантажити всі події з тегами (fetch join) */
+    @Query("select distinct e from Event e left join fetch e.tags")
     List<Event> findAllWithTags();
 
-    // Песимістичне блокування
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("select e from Event e where e.id = :id")
-    Optional<Event> findByIdForUpdate(@Param("id") Long id);
+    /** Завантажити подію з тегами за id (fetch join) */
+    @Query("select e from Event e left join fetch e.tags where e.id = :id")
+    Optional<Event> findByIdWithTags(@Param("id") Long id);
 
-    // Фільтр category/tag — enum
-    @EntityGraph(attributePaths = {"tags"})
+    /** Те саме, але з іншою назвою, бо різні сервіси викликають різні методи */
+    @Query("select e from Event e left join fetch e.tags where e.id = :id")
+    Optional<Event> findWithTagsById(@Param("id") Long id);
+
+    /** Пошук за назвою (case-insensitive) */
+    List<Event> findByNameContainingIgnoreCase(String name);
+
+    /** Пошук за локацією (case-insensitive) */
+    List<Event> findByLocationContainingIgnoreCase(String location);
+
+    /** Майбутні події (для PostGenerationService) */
+    List<Event> findByStartAtAfter(LocalDateTime from);
+
+    /**
+     * Фільтр: категорія + тег (тег — частковий збіг, case-insensitive).
+     * Якщо параметр tag == null або порожній, повертаємо всі з цієї категорії.
+     */
     @Query("""
-        select distinct e
-        from Event e
-        left join e.tags t
-        where (:category is null or e.category = :category)
-          and (:tag is null or t.name = :tag)
-        order by e.startAt asc, e.id asc
-    """)
+           select distinct e
+           from Event e
+             left join e.tags t
+           where e.category = :category
+             and ( :tag is null or :tag = '' or lower(t.name) like lower(concat('%', :tag, '%')) )
+           """)
     List<Event> findAllByCategoryAndTag(@Param("category") EventCategory category,
                                         @Param("tag") String tag);
 
-    // Альтернативний фільтр — String + cast (залишено за потреби)
-    @EntityGraph(attributePaths = {"tags"})
-    @Query("""
-        select distinct e
-        from Event e
-        left join e.tags t
-        where (:category is null or cast(e.category as string) = :category)
-          and (:tag is null or t.name = :tag)
-        order by e.startAt nulls last, e.id
-    """)
-    List<Event> findAllByCategoryAndTagRaw(@Param("category") String category,
-                                           @Param("tag") String tag);
-    java.util.List<com.example.sportadministrationsystem.model.Event>
-    findByStartAtAfter(java.time.LocalDateTime time);
-
-    @EntityGraph(attributePaths = {"tags"})
-    Optional<Event> findWithTagsById(Long id);
+    /** "FOR UPDATE" для безпечної модифікації лічильників/місць у межах TX */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select e from Event e where e.id = :id")
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000"))
+    Optional<Event> findByIdForUpdate(@Param("id") Long id);
 }

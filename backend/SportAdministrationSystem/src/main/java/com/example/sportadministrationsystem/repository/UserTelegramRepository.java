@@ -10,4 +10,9 @@ public interface UserTelegramRepository extends JpaRepository<UserTelegram, Long
     Optional<UserTelegram> findByUser(User user);
     Optional<UserTelegram> findByTgUserId(Long tgUserId);
     Optional<UserTelegram> findByTgChatId(Long tgChatId);
+
+    // Для сумісності зі старими викликами у коді
+    default Optional<UserTelegram> findByTelegramId(Long telegramId) {
+        return findByTgUserId(telegramId);
+    }
 }

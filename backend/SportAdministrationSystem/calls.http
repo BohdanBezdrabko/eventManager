@@ -23,7 +23,7 @@
 #
 @baseUrl = http://localhost:8081
 
-@admin_username = admin4
+@admin_username = admin6
 @admin_password = adm1nPass!
 
 @member_username = member1

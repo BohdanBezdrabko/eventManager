@@ -17,13 +17,14 @@ public interface EventSubscriptionRepository extends JpaRepository<EventSubscrip
 
     boolean existsByEventAndUserAndMessengerAndActiveIsTrue(Event event, User user, Messenger messenger);
 
+    // Потрібно для PostDispatchService — отримати chatId активних підписників на подію
     @Query(value = """
             select ut.tg_chat_id
             from event_subscriptions es
             join users u on u.id = es.user_id
             join user_telegram ut on ut.user_id = u.id
             where es.event_id = :eventId
-              and es.messenger::text = :messenger
+              and es.messenger = :messenger
               and es.active = true
               and ut.tg_chat_id is not null
             """, nativeQuery = true)

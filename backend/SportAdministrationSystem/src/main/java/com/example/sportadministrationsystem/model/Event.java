@@ -5,54 +5,55 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.Set;
 
 @Entity
 @Table(name = "events")
-@Getter
-@Setter
-@NoArgsConstructor
-@AllArgsConstructor
-@Builder
+@Getter @Setter
+@NoArgsConstructor @AllArgsConstructor @Builder
 public class Event {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false)
+    @Column(nullable = false)               // V2: name TEXT NOT NULL
     private String name;
 
-    @Column(name = "start_at", nullable = false)
-    private LocalDateTime startAt;
-
-    @Column(nullable = false)
+    @Column(nullable = false)               // V2: location TEXT NOT NULL
     private String location;
 
-    @Column
-    private Integer capacity;
-
-    @Column(columnDefinition = "TEXT")
-    private String description;
-
-    @Column(name = "cover_url")
-    private String coverUrl;
-
-    @CreationTimestamp
+    @CreationTimestamp                      // V2: created_at TIMESTAMP NOT NULL DEFAULT NOW()
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "registered_count", nullable = false)
+    @Builder.Default
+    @Column(name = "registered_count", nullable = false) // V2: registered_count INTEGER NOT NULL DEFAULT 0
     private Integer registeredCount = 0;
-    @Enumerated(EnumType.STRING)
+
+    @Column(name = "start_at", nullable = false) // V5: start_at TIMESTAMP NOT NULL DEFAULT NOW()
+    private LocalDateTime startAt;
+
+    @Column                                  // V5: capacity INTEGER
+    private Integer capacity;
+
+    @Column(columnDefinition = "TEXT")       // V5: description TEXT
+    private String description;
+
+    @Column(name = "cover_url")              // V5: cover_url TEXT
+    private String coverUrl;
+
+    @Enumerated(EnumType.STRING)             // V6: category VARCHAR(64)
     @Column(name = "category", length = 64)
     private EventCategory category;
 
     @ManyToMany
     @JoinTable(
-            name = "event_tags",
+            name = "event_tags",             // V6: event_tags(event_id, tag_id)
             joinColumns = @JoinColumn(name = "event_id"),
             inverseJoinColumns = @JoinColumn(name = "tag_id")
     )
-    private Set<Tag> tags;
+    @Builder.Default
+    private Set<Tag> tags = new HashSet<>();
 }

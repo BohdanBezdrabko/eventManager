@@ -1,59 +1,45 @@
 package com.example.sportadministrationsystem.service;
 
-import com.example.sportadministrationsystem.model.Role;
 import com.example.sportadministrationsystem.model.User;
 import com.example.sportadministrationsystem.model.UserTelegram;
 import com.example.sportadministrationsystem.repository.UserRepository;
 import com.example.sportadministrationsystem.repository.UserTelegramRepository;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
-
-@Service
+@Component
 @RequiredArgsConstructor
 public class TelegramAccountProvisioner {
 
-    private final UserRepository users;
-    private final UserTelegramRepository userTg;
-    private final PasswordEncoder passwordEncoder;
+    private final UserRepository userRepository;
+    private final UserTelegramRepository userTelegramRepository;
 
+    /**
+     * Створює "тіньового" користувача та зв'язок у user_telegram.
+     * Враховано, що в схемі tg_chat_id NOT NULL — ставимо tgChatId = tgUserId.
+     */
     @Transactional
     public User provisionShadow(Long tgUserId, String tgUsername, String firstName, String lastName) {
-        Optional<UserTelegram> existing = userTg.findByTgUserId(tgUserId);
-        if (existing.isPresent()) return existing.get().getUser();
-
-        String base = (tgUsername != null && !tgUsername.isBlank())
-                ? ("tg_" + tgUsername.toLowerCase())
+        // username має бути унікальним; формуємо стабільний
+        String username = (tgUsername != null && !tgUsername.isBlank())
+                ? tgUsername
                 : ("tg_" + tgUserId);
-        String candidate = base;
-        int i = 0;
-        while (users.findByUsername(candidate).isPresent()) {
-            candidate = base + "_" + (++i);
-        }
 
-        String randomPassword = passwordEncoder.encode(UUID.randomUUID().toString());
-
-        User u = User.builder()
-                .username(candidate)
-                .password(randomPassword)
-                .roles(Set.of(Role.ROLE_USER))
+        // Мінімально необхідні поля
+        User user = User.builder()
+                .username(username)
+                .password("tg-shadow") // не використовується для логіну; головне — NOT NULL
                 .build();
-        u = users.save(u);
+        user = userRepository.save(user);
 
-        UserTelegram map = UserTelegram.builder()
-                .user(u)
+        UserTelegram ut = UserTelegram.builder()
+                .user(user)
                 .tgUserId(tgUserId)
-                .tgChatId(tgUserId) // приватний чат користувача = його tg user id
-                .linkedAt(LocalDateTime.now())
+                .tgChatId(tgUserId) // важливо для NOT NULL у схемі
                 .build();
-        userTg.save(map);
+        userTelegramRepository.save(ut);
 
-        return u;
+        return user;
     }
 }
