@@ -94,4 +94,5 @@ public interface PostRepository extends JpaRepository<Post, Long> {
             FOR UPDATE SKIP LOCKED
             """, nativeQuery = true)
     java.util.List<com.example.sportadministrationsystem.model.Post> lockNextDue(@Param("batchSize") int batchSize);
+
 }

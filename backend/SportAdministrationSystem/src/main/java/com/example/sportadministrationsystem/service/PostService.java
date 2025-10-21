@@ -14,12 +14,12 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -27,21 +27,25 @@ public class PostService {
 
     private final EventRepository eventRepository;
     private final PostRepository postRepository;
-    private final TelegramService telegramService;
+    private final PostDispatchService postDispatchService;
 
-    /** fallback chat id з application.yml: telegram.bot.chat-id */
     @Value("${telegram.bot.chat-id:}")
     private String defaultChatId;
 
-    /* -------------------- CRUD -------------------- */
+    /* ===================== CRUD ===================== */
 
     @Transactional
     public PostDto create(Long eventId, PostPayload payload) {
         Event event = eventRepository.findById(eventId)
                 .orElseThrow(() -> new NotFoundException("Event not found: " + eventId));
 
-        PostStatus status = payload.status() == null || payload.status().isBlank()
-                ? PostStatus.DRAFT : parseStatus(payload.status());
+        PostStatus status = Optional.ofNullable(payload.status())
+                .filter(s -> !s.isBlank())
+                .map(this::parseStatus)
+                .orElse(PostStatus.DRAFT);
+
+        Audience audience = parseAudience(payload.audience());
+        Channel channel = parseChannel(payload.channel());
 
         Post p = Post.builder()
                 .event(event)
@@ -49,48 +53,47 @@ public class PostService {
                 .body(payload.body())
                 .publishAt(payload.publishAt())
                 .status(status)
-                .audience(parseAudience(payload.audience()))
-                .channel(parseChannel(payload.channel()))
+                .audience(audience)
+                .channel(channel)
                 .externalId(null)
                 .error(null)
                 .generated(false)
-                .telegramChatId(payload.telegramChatId()) // може бути null — ок
+                .telegramChatId(
+                        (payload.telegramChatId() != null && !payload.telegramChatId().isBlank())
+                                ? payload.telegramChatId()
+                                : (defaultChatId == null ? null : defaultChatId.trim())
+                )
                 .build();
 
         return toDto(postRepository.save(p));
     }
 
-    public PostDto get(Long eventId, Long postId) {
-        Post p = getChecked(eventId, postId);
-        return toDto(p);
-    }
-
-    public List<PostDto> list(Long eventId, String status, String audience, String channel) {
-        PostStatus s = (status == null || status.isBlank()) ? null : parseStatus(status);
-        Audience a = (audience == null || audience.isBlank()) ? null : parseAudience(audience);
-        Channel c = (channel == null || channel.isBlank()) ? null : parseChannel(channel);
-        return postRepository.findByEventIdAndFilters(eventId, s, a, c)
-                .stream().map(this::toDto).toList();
-    }
-
     @Transactional
     public PostDto update(Long eventId, Long postId, PostPayload payload) {
         Post p = getChecked(eventId, postId);
-        p.setTitle(payload.title());
-        p.setBody(payload.body());
-        p.setPublishAt(payload.publishAt());
-        p.setAudience(parseAudience(payload.audience()));
-        p.setChannel(parseChannel(payload.channel()));
-        p.setTelegramChatId(payload.telegramChatId());
 
-        // (опційно) одразу можемо змінити статус, якщо передано
+        if (payload.title() != null && !payload.title().isBlank()) {
+            p.setTitle(payload.title());
+        }
+        if (payload.body() != null && !payload.body().isBlank()) {
+            p.setBody(payload.body());
+        }
+        if (payload.publishAt() != null) {
+            p.setPublishAt(payload.publishAt());
+        }
+        if (payload.audience() != null && !payload.audience().isBlank()) {
+            p.setAudience(parseAudience(payload.audience()));
+        }
+        if (payload.channel() != null && !payload.channel().isBlank()) {
+            p.setChannel(parseChannel(payload.channel()));
+        }
         if (payload.status() != null && !payload.status().isBlank()) {
             PostStatus next = parseStatus(payload.status());
             validateTransition(p.getStatus(), next);
             p.setStatus(next);
-            if (next != PostStatus.FAILED) {
-                p.setError(null);
-            }
+        }
+        if (payload.telegramChatId() != null) {
+            p.setTelegramChatId(payload.telegramChatId().isBlank() ? null : payload.telegramChatId());
         }
 
         return toDto(postRepository.save(p));
@@ -102,94 +105,106 @@ public class PostService {
         postRepository.delete(p);
     }
 
-    /* -------------------- Статуси/публікація -------------------- */
-
-    @Transactional
-    public PostDto publishNow(Long eventId, Long postId) {
-        Post p = getChecked(eventId, postId);
-        try {
-            sendToChannel(p);                     // <-- ловимо checked TelegramApiException
-            p.setStatus(PostStatus.PUBLISHED);
-            p.setError(null);
-        } catch (TelegramApiException e) {
-            p.setStatus(PostStatus.FAILED);
-            p.setError(e.getMessage());
-        }
-        return toDto(postRepository.save(p));
-    }
-
-    /** Запустити відправку всіх SCHEDULED, у яких publishAt <= now */
-    @Transactional
-    public int dispatchDue() {
-        LocalDateTime now = LocalDateTime.now();
-        List<Post> due = postRepository.findPostsToDispatch(PostStatus.SCHEDULED, now);
-        int sent = 0;
-        for (Post p : due) {
-            try {
-                sendToChannel(p);
-                p.setStatus(PostStatus.PUBLISHED);
-                p.setError(null);
-                sent++;
-            } catch (TelegramApiException e) {
-                p.setStatus(PostStatus.FAILED);
-                p.setError(e.getMessage());
-            }
-        }
-        postRepository.saveAll(due);
-        return sent;
-    }
-
     @Transactional
     public PostDto changeStatus(Long eventId, Long postId, String statusStr, String error) {
         Post p = getChecked(eventId, postId);
         PostStatus next = parseStatus(statusStr);
         validateTransition(p.getStatus(), next);
         p.setStatus(next);
-        if (next == PostStatus.FAILED) {
-            p.setError(error != null && !error.isBlank() ? error : "failed");
-        } else {
-            p.setError(null);
-        }
+        p.setError(error);
         return toDto(postRepository.save(p));
     }
 
-    private void validateTransition(PostStatus current, PostStatus next) {
-        boolean ok =
-                (current == PostStatus.DRAFT     && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
-                        (current == PostStatus.SCHEDULED && (next == PostStatus.PUBLISHED || next == PostStatus.CANCELED || next == PostStatus.FAILED)) ||
-                        (current == PostStatus.FAILED    && (next == PostStatus.SCHEDULED || next == PostStatus.CANCELED)) ||
-                        (current == PostStatus.CANCELED  && (next == PostStatus.SCHEDULED));
-        if (!ok) {
-            throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
-        }
+    /* ===================== Queries ===================== */
+
+    @Transactional
+    public PostDto get(Long eventId, Long postId) {
+        return toDto(getChecked(eventId, postId));
     }
 
-    /* -------------------- Helpers -------------------- */
+    @Transactional
+    public List<PostDto> list(Long eventId, String status, String audience, String channel) {
+        PostStatus s = (status == null || status.isBlank()) ? null : parseStatus(status);
+        Audience a = (audience == null || audience.isBlank()) ? null : parseAudience(audience);
+        Channel c = (channel == null || channel.isBlank()) ? null : parseChannel(channel);
+        return postRepository.findByEventIdAndFilters(eventId, s, a, c)
+                .stream().map(this::toDto).toList();
+    }
 
-    private void sendToChannel(Post p) throws TelegramApiException {
-        if (p.getChannel() == Channel.TELEGRAM) {
-            String chatId = (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank())
-                    ? p.getTelegramChatId()
-                    : defaultChatId;
-            if (chatId == null || chatId.isBlank()) {
-                throw new TelegramApiException("Telegram chatId isn't set (post.telegramChatId and telegram.bot.chat-id are empty)");
+    /* ===================== Dispatch ===================== */
+
+    /** Публікувати негайно (делегуємо всю логіку в PostDispatchService). */
+    @Transactional
+    public PostDto publishNow(Long eventId, Long postId) {
+        Post p = getChecked(eventId, postId);
+        postDispatchService.dispatch(p);
+        // PostDispatchService сам виставляє status/error/externalId
+        return toDto(postRepository.save(p));
+    }
+
+    /**
+     * Відправити всі SCHEDULED пости з publishAt <= now.
+     * Бере кандидатів через repository.findPostsToDispatch(...)
+     */
+    @Transactional
+    public int dispatchDue() {
+        LocalDateTime now = LocalDateTime.now();
+        List<Post> due = postRepository.findPostsToDispatch(PostStatus.SCHEDULED, now);
+        int processed = 0;
+        for (Post p : due) {
+            try {
+                postDispatchService.dispatch(p);
+                processed++;
+            } catch (Exception ex) {
+                // PostDispatchService уже виставив FAILED + error; продовжуємо
             }
-            Long eventId = (p.getEvent() != null) ? p.getEvent().getId() : null;
-            if (eventId != null) {
-                telegramService.sendMessage(chatId, p.getBody(),
-                        telegramService.eventKeyboard(eventId, false));
-            } else {
-                telegramService.sendMessage(chatId, p.getBody());
+        }
+        postRepository.saveAll(due);
+        return processed;
+    }
+
+    /* ===================== Helpers ===================== */
+
+    private void validateTransition(PostStatus current, PostStatus next) {
+        if (Objects.equals(current, next)) return;
+
+        // Дозволені переходи
+        // DRAFT -> SCHEDULED | PUBLISHED | CANCELLED
+        // SCHEDULED -> PUBLISHED | FAILED | CANCELLED
+        // FAILED -> SCHEDULED | CANCELLED
+        // PUBLISHED -> CANCELLED
+        // CANCELLED -> (заборонено)
+        switch (current) {
+            case DRAFT -> {
+                if (next != PostStatus.SCHEDULED && next != PostStatus.PUBLISHED && next != PostStatus.CANCELLED) {
+                    throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+                }
             }
-        } else {
-            throw new IllegalStateException("Unsupported channel: " + p.getChannel());
+            case SCHEDULED -> {
+                if (next != PostStatus.PUBLISHED && next != PostStatus.FAILED && next != PostStatus.CANCELLED) {
+                    throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+                }
+            }
+            case FAILED -> {
+                if (next != PostStatus.SCHEDULED && next != PostStatus.CANCELLED) {
+                    throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+                }
+            }
+            case PUBLISHED -> {
+                if (next != PostStatus.CANCELLED) {
+                    throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+                }
+            }
+            case CANCELLED -> {
+                throw new IllegalStateException("Illegal transition: " + current + " -> " + next);
+            }
         }
     }
 
     private Post getChecked(Long eventId, Long postId) {
         Post p = postRepository.findById(postId)
                 .orElseThrow(() -> new NotFoundException("Post not found: " + postId));
-        if (!Objects.equals(p.getEvent().getId(), eventId)) {
+        if (p.getEvent() == null || !Objects.equals(p.getEvent().getId(), eventId)) {
             throw new NotFoundException("Post " + postId + " does not belong to event " + eventId);
         }
         return p;
@@ -198,13 +213,13 @@ public class PostService {
     private PostDto toDto(Post p) {
         return new PostDto(
                 p.getId(),
-                p.getEvent().getId(),
+                p.getEvent() != null ? p.getEvent().getId() : null,
                 p.getTitle(),
                 p.getBody(),
                 p.getPublishAt(),
-                p.getStatus().name(),
-                p.getAudience().name(),
-                p.getChannel().name(),
+                p.getStatus() != null ? p.getStatus().name() : null,
+                p.getAudience() != null ? p.getAudience().name() : null,
+                p.getChannel() != null ? p.getChannel().name() : null,
                 p.getExternalId(),
                 p.getError(),
                 p.isGenerated(),
