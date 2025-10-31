@@ -1,10 +1,14 @@
 package com.example.sportadministrationsystem.controller;
 
+import com.example.sportadministrationsystem.dto.CreatorDto;
 import com.example.sportadministrationsystem.dto.EventDto;
 import com.example.sportadministrationsystem.dto.EventPayload;
 import com.example.sportadministrationsystem.service.EventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,27 +22,48 @@ public class EventController {
 
     private final EventService eventService;
 
+    /** Список івентів з фільтрами. Підтримує ?createdBy= */
     @GetMapping
-    public ResponseEntity<List<EventDto>> list(
+    public ResponseEntity<Page<EventDto>> list(
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) String tag
+            @RequestParam(required = false) String tag,
+            @RequestParam(required = false) Long createdBy,
+            @PageableDefault(size = 20, sort = {"startAt"}) Pageable pageable
     ) {
-        return ResponseEntity.ok(eventService.getAllEvents(category, tag));
+        if (createdBy != null) {
+            return ResponseEntity.ok(eventService.listByAuthor(createdBy, pageable));
+        }
+        return ResponseEntity.ok(eventService.list(category, tag, pageable));
+    }
+
+    /** Альтернативний шлях: /events/by-author/{userId} */
+    @GetMapping("/by-author/{userId}")
+    public ResponseEntity<Page<EventDto>> listByAuthorPath(
+            @PathVariable Long userId,
+            @PageableDefault(size = 20, sort = {"startAt"}) Pageable pageable
+    ) {
+        return ResponseEntity.ok(eventService.listByAuthor(userId, pageable));
     }
 
     @GetMapping("/{id:\\d+}")
-    public ResponseEntity<EventDto> findById(@PathVariable Long id) {
+    public ResponseEntity<EventDto> getById(@PathVariable Long id) {
         return ResponseEntity.ok(eventService.getEventById(id));
     }
 
     @GetMapping("/by-name/{name}")
     public ResponseEntity<List<EventDto>> findByName(@PathVariable String name) {
-        return ResponseEntity.ok(eventService.getEventsByName(name));
+        return ResponseEntity.ok(eventService.findByName(name));
     }
 
     @GetMapping("/by-location/{location}")
     public ResponseEntity<List<EventDto>> findByLocation(@PathVariable String location) {
-        return ResponseEntity.ok(eventService.getEventsByLocation(location));
+        return ResponseEntity.ok(eventService.findByLocation(location));
+    }
+
+    /** Автор івента */
+    @GetMapping("/{id:\\d+}/creator")
+    public ResponseEntity<CreatorDto> getCreator(@PathVariable Long id) {
+        return ResponseEntity.ok(eventService.getCreator(id));
     }
 
     @PostMapping

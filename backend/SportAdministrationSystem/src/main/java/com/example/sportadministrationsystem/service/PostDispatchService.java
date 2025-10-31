@@ -18,35 +18,29 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.List;
 
-@Service
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class PostDispatchService {
 
-    /** Більше НЕ інжектимо AbsSender — напряму використовуємо TelegramService. */
-    private final TelegramService telegramService;
-
     private final PostRepository postRepository;
-    private final EventSubscriptionRepository subscriptionRepository;
+    private final TelegramService telegramService;
+    private final EventSubscriptionRepository eventSubscriptionRepository;
 
-    /**
-     * Значення за замовчуванням для публічного каналу/чату, якщо у пості не задано.
-     * Може бути як "-1001234567890", так і @channelUsername — але для API краще ID.
-     */
-    @Value("${telegram.bot.chat-id:}")
+    @Value("${telegram.defaultChannelChatId:}")
     private String defaultChannelChatId;
 
     /**
-     * Відправляє пост згідно з його каналом/аудиторією. Оновлює статус/помилку.
+     * Відправка одного поста, викликається планувальником або вручну.
      */
     @Transactional
     public void dispatch(Post post) {
         try {
-            int sentCount;
             if (post.getChannel() != Channel.TELEGRAM) {
                 throw new IllegalStateException("Unsupported channel: " + post.getChannel());
             }
 
+            int sentCount;
             if (post.getAudience() == Audience.PUBLIC) {
                 sentCount = dispatchPublic(post);
             } else if (post.getAudience() == Audience.SUBSCRIBERS) {
@@ -55,92 +49,103 @@ public class PostDispatchService {
                 throw new IllegalStateException("Unsupported audience: " + post.getAudience());
             }
 
-            log.info("Post #{} delivered to {} target(s).", post.getId(), sentCount);
             post.setStatus(PostStatus.PUBLISHED);
             post.setError(null);
+            log.info("Post #{} delivered to {} target(s).", post.getId(), sentCount);
         } catch (Exception e) {
-            log.warn("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
             post.setStatus(PostStatus.FAILED);
             post.setError(shorten(e.getMessage(), 500));
+            log.error("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
+        } finally {
+            postRepository.save(post);
         }
-
-        postRepository.save(post);
     }
 
-    /** Відправка у конкретний канал/чат (PUBLIC). */
     private int dispatchPublic(Post p) throws TelegramApiException {
         String chatId = resolveTargetChatId(p);
-        String text = buildText(p);
-        InlineKeyboardMarkup kb = (p.getEvent() != null && p.getEvent().getId() != null)
-                ? telegramService.eventKeyboard(p.getEvent().getId(), false)
-                : null;
+        String text = buildPostText(p);
+
+        Event e = p.getEvent();
+        if (e == null || e.getId() == null) {
+            throw new IllegalStateException("PUBLIC post must be linked to an Event");
+        }
+
+        String linkUrl = resolveEventLinkUrl(e);
+
+// якщо це перший вже опублікований пост по івенту — робимо "живий" callback;
+// якщо ні — ставимо deep-link у бот для персонального відображення статусу
+        long publishedCount = postRepository.countByEvent_IdAndStatus(e.getId(), PostStatus.PUBLISHED);
+        InlineKeyboardMarkup kb = (publishedCount == 0)
+                ? telegramService.eventKeyboard(e.getId(), false, linkUrl)                 // 1-й пост
+                : telegramService.eventKeyboardPublicFollowup(e.getId(), linkUrl);         // 2-й і далі
 
         telegramService.sendMessage(chatId, text, kb);
         return 1;
+
     }
 
-    /**
-     * Відправка всім Telegram-передплатникам події (SUBSCRIBERS).
-     * Використовує findSubscriberChatIds(...) з репозиторію.
-     */
-    private int dispatchSubscribers(Post p) {
-        Event event = requireEvent(p);
+    private int dispatchSubscribers(Post p) throws TelegramApiException {
+        Event e = p.getEvent();
+        if (e == null || e.getId() == null) return 0;
 
-        List<Long> chatIds = subscriptionRepository.findSubscriberChatIds(
-                event.getId(),
-                Messenger.TELEGRAM.name()
-        );
+        List<Long> chatIds = eventSubscriptionRepository
+                .findSubscriberChatIds(e.getId(), Messenger.TELEGRAM);
+
+        String text = buildPostText(p);
+        String linkUrl = resolveEventLinkUrl(e);
+        InlineKeyboardMarkup kb = telegramService.eventKeyboard(e.getId(), true, linkUrl);
 
         int sent = 0;
-        if (chatIds == null || chatIds.isEmpty()) {
-            log.info("No Telegram subscribers for event #{}", event.getId());
-            return 0;
-        }
-
-        String text = buildText(p);
-        InlineKeyboardMarkup kb = telegramService.eventKeyboard(event.getId(), true);
-
         for (Long chatId : chatIds) {
-            try {
-                telegramService.sendMessage(String.valueOf(chatId), text, kb);
-                sent++;
-            } catch (TelegramApiException te) {
-                log.warn("Delivery to chat {} failed: {}", chatId, te.getMessage());
-            }
+            telegramService.sendMessage(String.valueOf(chatId), text, kb);
+            sent++;
         }
         return sent;
     }
 
-    /** Якщо у пості задано кастомний telegramChatId — використовуємо його, інакше беремо дефолт з application.yml. */
     private String resolveTargetChatId(Post p) {
-        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) {
-            return p.getTelegramChatId();
-        }
-        if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) {
-            return defaultChannelChatId;
-        }
-        throw new IllegalStateException("No target Telegram chat id configured for PUBLIC post");
+        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) return p.getTelegramChatId();
+        if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) return defaultChannelChatId;
+        throw new IllegalStateException("No Telegram chatId for PUBLIC post");
     }
 
-    /** Текст повідомлення (заголовок + тіло). */
-    private String buildText(Post p) {
-        if (p.getTitle() != null && !p.getTitle().isBlank()) {
-            return "⭐ " + p.getTitle() + "\n\n" + (p.getBody() == null ? "" : p.getBody());
-        }
-        return p.getBody() == null ? "" : p.getBody();
+    private String buildPostText(Post p) {
+        String t = p.getTitle() == null ? "" : p.getTitle();
+        String b = p.getBody() == null ? "" : p.getBody();
+        return (t + (b.isBlank() ? "" : "\n\n" + b)).trim();
     }
 
-    private Event requireEvent(Post p) {
-        Event e = p.getEvent();
-        if (e == null || e.getId() == null) {
-            throw new IllegalStateException("Post must be linked to an Event for this operation");
+    /**
+     * 1) Перевага за Event.getUrl() (якщо додав це поле в модель)
+     * 2) Відкат на Event.getCoverUrl()
+     */
+    private String resolveEventLinkUrl(Event e) {
+        if (e == null) return null;
+        try {
+            var m = e.getClass().getMethod("getUrl");
+            Object v = m.invoke(e);
+            if (v instanceof String s && s != null && !s.isBlank()) {
+                return s.trim();
+            }
+        } catch (NoSuchMethodException ignore) {
+            // не додано поле url — ок
+        } catch (Exception ex) {
+            log.warn("resolveEventLinkUrl via getUrl failed: {}", ex.toString());
         }
-        return e;
+        try {
+            var m2 = e.getClass().getMethod("getCoverUrl");
+            Object v2 = m2.invoke(e);
+            if (v2 instanceof String s2 && s2 != null && !s2.isBlank()) {
+                return s2.trim();
+            }
+        } catch (Exception ex) {
+            log.warn("resolveEventLinkUrl via getCoverUrl failed: {}", ex.toString());
+        }
+        return null;
     }
 
     private static String shorten(String s, int max) {
         if (s == null) return null;
-        if (s.length() <= max) return s;
-        return s.substring(0, max - 1) + "…";
+        return s.length() <= max ? s : s.substring(0, max);
     }
 }

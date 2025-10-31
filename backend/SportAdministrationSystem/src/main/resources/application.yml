@@ -54,7 +54,7 @@ jwt:
 telegram:
   bot:
     token: 8470789325:AAFEfsjKlPbOkBWPVXfN99o9ahumV9_vWHg
-    username: EventBotKpi
+    username: EventKPIbot
     # додав обидва варіанти ключа, щоб точно співпало з биндингом
     chat-id: -4894126161
     defaultChatId: -4894126161

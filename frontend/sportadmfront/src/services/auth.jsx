@@ -6,7 +6,7 @@ function url(path) {
     return /^https?:\/\//i.test(path) ? path : `${API_ROOT}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
-// storage API
+// ---------------- storage ----------------
 export function setToken(token) {
     if (token) localStorage.setItem(ACCESS_KEY, token);
 }
@@ -17,7 +17,7 @@ export function clearToken() {
     localStorage.removeItem(ACCESS_KEY);
 }
 
-// jwt -> user
+// ---------------- jwt helpers (fallback) ----------------
 function b64urlDecode(s) {
     try {
         const pad = "=".repeat((4 - (s.length % 4)) % 4);
@@ -31,7 +31,6 @@ function b64urlDecode(s) {
         return "{}";
     }
 }
-
 export function userFromToken(token) {
     if (!token) return null;
     const parts = token.split(".");
@@ -41,7 +40,7 @@ export function userFromToken(token) {
     if (typeof roles === "string") roles = roles.split(/[,\s]+/).filter(Boolean);
     if (!Array.isArray(roles)) roles = [];
     return {
-        id: p.id ?? p.userId ?? null,
+        id: p.id ?? p.userId ?? null, // у твоєму JWT цього немає — лишаємо лише як запасний варіант
         username: p.username ?? p.user_name ?? p.preferred_username ?? p.sub ?? null,
         email: p.email ?? null,
         roles: Array.from(new Set(roles.map(String))),
@@ -49,7 +48,7 @@ export function userFromToken(token) {
     };
 }
 
-// authenticated fetch helper
+// ---------------- auth fetch ----------------
 export async function authJson(path, init = {}) {
     const headers = new Headers(init.headers || {});
     headers.set("Accept", "application/json");
@@ -69,7 +68,27 @@ export async function authJson(path, init = {}) {
     return ct.includes("application/json") ? res.json() : res.text();
 }
 
-// auth endpoints
+// ---------------- /me endpoints ----------------
+// приватний — одразу після login з тимчасовим токеном
+async function getMeWithToken(token) {
+    const headers = { Accept: "application/json", Authorization: `Bearer ${token}` };
+    let res = await fetch(url("/auth/me"), { headers });
+    if (res.ok) return res.json();
+    res = await fetch(url("/users/me"), { headers });
+    if (!res.ok) throw new Error(`GET /me failed: HTTP ${res.status}`);
+    return res.json();
+}
+
+/** Повертає { id, username, roles } для поточного користувача за збереженим токеном */
+export async function getMe() {
+    try {
+        return await authJson("/auth/me");
+    } catch {
+        return await authJson("/users/me");
+    }
+}
+
+// ---------------- auth endpoints ----------------
 export async function loginUser(identifier, password) {
     const res = await fetch(url("/auth/login"), {
         method: "POST",
@@ -80,7 +99,15 @@ export async function loginUser(identifier, password) {
     const data = await res.json();
     const token = data.accessToken || data.token || data.jwt || data.access_token;
     if (!token) throw new Error("Login failed: token missing");
-    return { token, user: data.user || userFromToken(token) || null };
+
+    // Критично: витягаємо реального user з /me (JWT не містить id)
+    let user = null;
+    try {
+        user = await getMeWithToken(token); // { id, username, roles }
+    } catch {
+        user = data.user || userFromToken(token) || null; // фолбек, якщо /me тимчасово недоступний
+    }
+    return { token, user };
 }
 
 export async function registerUser(username, password, role = "user", extra = {}) {
@@ -92,5 +119,9 @@ export async function registerUser(username, password, role = "user", extra = {}
     if (!res.ok) throw new Error(`Register failed: HTTP ${res.status}`);
     const data = await res.json();
     const token = data.accessToken || data.token || data.jwt || data.access_token || null;
-    return { token, user: data.user || (token ? userFromToken(token) : null) };
+
+    let user = data.user || (token ? await getMeWithToken(token).catch(() => null) : null);
+    if (!user && token) user = userFromToken(token);
+
+    return { token, user };
 }

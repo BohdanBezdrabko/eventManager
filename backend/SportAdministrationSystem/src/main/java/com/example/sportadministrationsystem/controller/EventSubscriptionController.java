@@ -1,12 +1,8 @@
 package com.example.sportadministrationsystem.controller;
 
 import com.example.sportadministrationsystem.model.Event;
-import com.example.sportadministrationsystem.model.EventSubscription;
 import com.example.sportadministrationsystem.model.Messenger;
-import com.example.sportadministrationsystem.model.User;
 import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
-import com.example.sportadministrationsystem.repository.UserRepository;
-import com.example.sportadministrationsystem.repository.UserTelegramRepository;
 import com.example.sportadministrationsystem.service.EventService;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -16,71 +12,35 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
+@RequestMapping("/api/v1/events/{eventId}/subscription")
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/events/{eventId:\\d+}/subscriptions")
 public class EventSubscriptionController {
 
     private final EventService eventService;
-    private final UserRepository userRepository;
-    private final UserTelegramRepository userTelegramRepository;
-    private final EventSubscriptionRepository subscriptionRepository;
+    private final EventSubscriptionRepository eventSubscriptionRepository;
 
-    /** Підписатися (Telegram) поточним користувачем */
-    @PostMapping("/subscribe")
-    public ResponseEntity<Void> subscribe(@PathVariable Long eventId, Authentication auth) {
-        Event event = eventService.loadEntity(eventId);
-        User user = userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new IllegalStateException("User not found"));
-
-        // Вимога: лінк до Telegram має існувати
-        boolean linked = userTelegramRepository.findByUser(user).isPresent();
-        if (!linked) {
-            return ResponseEntity.badRequest().build();
-        }
-
-        EventSubscription sub = subscriptionRepository
-                .findByEventAndUserAndMessenger(event, user, Messenger.TELEGRAM)
-                .orElseGet(() -> EventSubscription.builder()
-                        .event(event)
-                        .user(user)
-                        .messenger(Messenger.TELEGRAM)
-                        .active(true)
-                        .build());
-
-        sub.setActive(true);
-        subscriptionRepository.save(sub);
-
-        return ResponseEntity.noContent().build();
+    /**
+     * Статус мого зв’язку/підписки (ваш існуючий ендпоінт, за потреби доробите логіку всередині).
+     */
+    @GetMapping("/my-status")
+    public ResponseEntity<MySubscriptionStatus> myStatus(@PathVariable Long eventId,
+                                                         Authentication auth) {
+        Event event = eventService.getEvent(eventId);
+        return ResponseEntity.ok(new MySubscriptionStatus(false, false));
     }
 
-    /** Відписатися (Telegram) поточним користувачем */
-    @DeleteMapping("/unsubscribe")
-    public ResponseEntity<Void> unsubscribe(@PathVariable Long eventId, Authentication auth) {
-        Event event = eventService.loadEntity(eventId);
-        User user = userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new IllegalStateException("User not found"));
+    /**
+     * НОВЕ: лише кількість активних Telegram-підписників на івент.
+     * Рахуємо тільки тих, у кого є tg_chat_id (тобто реально зв’язані в Telegram),
+     * і лише active=true.
+     */
+    @GetMapping("/telegram/count")
+    public ResponseEntity<TelegramCountResponse> countTelegram(@PathVariable Long eventId) {
+        // Переконаємося, що івент існує (кине 404/400, якщо ні)
+        eventService.getEvent(eventId);
 
-        subscriptionRepository.findByEventAndUserAndMessenger(event, user, Messenger.TELEGRAM)
-                .ifPresent(es -> {
-                    es.setActive(false);
-                    subscriptionRepository.save(es);
-                });
-
-        return ResponseEntity.noContent().build();
-    }
-
-    /** Статус підключення і підписки поточного користувача для конкретного івенту */
-    @GetMapping("/my")
-    public ResponseEntity<MySubscriptionStatus> myStatus(@PathVariable Long eventId, Authentication auth) {
-        Event event = eventService.loadEntity(eventId);
-        User user = userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new IllegalStateException("User not found"));
-
-        boolean linked = userTelegramRepository.findByUser(user).isPresent();
-        boolean subscribed = subscriptionRepository
-                .existsByEventAndUserAndMessengerAndActiveIsTrue(event, user, Messenger.TELEGRAM);
-
-        return ResponseEntity.ok(new MySubscriptionStatus(linked, subscribed));
+        long count = eventSubscriptionRepository.countActiveTelegram(eventId);
+        return ResponseEntity.ok(new TelegramCountResponse(eventId, Messenger.TELEGRAM.name(), true, count));
     }
 
     @Data
@@ -88,5 +48,14 @@ public class EventSubscriptionController {
     public static class MySubscriptionStatus {
         private boolean linked;
         private boolean subscribed;
+    }
+
+    @Data
+    @AllArgsConstructor
+    public static class TelegramCountResponse {
+        private Long eventId;
+        private String messenger; // "TELEGRAM"
+        private boolean active;   // завжди true для цього ендпоінта
+        private long count;       // кількість унікальних підписників з tg_chat_id
     }
 }

@@ -1,8 +1,8 @@
-import {useEffect, useMemo, useState} from "react";
-import {Link} from "react-router-dom";
-import {getMyRegistrations} from "@/services/eventRegistrations.jsx";
-import {getEventById} from "@/services/events.jsx";
-import {useAuth} from "@/context/AuthContext";
+// src/pages/DashboardPage.jsx
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { getEventsByAuthor } from "@/services/events.jsx";
+import { useAuth } from "@/context/AuthContext";
 
 function byStartAsc(a, b) {
     const ta = new Date(a.startAt || 0).getTime() || 0;
@@ -10,11 +10,8 @@ function byStartAsc(a, b) {
     return ta - tb;
 }
 
-function EventItem({ev}) {
-    const start = ev.startAt || "";
-    const capacity = Number(ev.capacity || 0) || "∞";
-    const registered = Number(ev.registeredCount || 0) || 0;
-    const free = capacity === "∞" ? "∞" : Math.max(capacity - registered, 0);
+function EventItem({ ev }) {
+    const start = ev.startAt ? new Date(ev.startAt).toLocaleString() : "";
     return (
         <div className="card card--row">
             <div className="card__main">
@@ -27,60 +24,66 @@ function EventItem({ev}) {
                 </div>
             </div>
             <div className="card__aside text-end">
-                <div className="muted small mb-1">
-                    Місць: {capacity} • Вільно: {free}
-                </div>
-                <Link to={`/events/${ev.id}`} className="btn btn-sm btn-outline-primary">
-                    Деталі
-                </Link>
+                <Link to={`/events/${ev.id}`} className="btn btn-sm btn-outline-primary">Деталі</Link>
             </div>
         </div>
     );
 }
 
 export default function DashboardPage() {
-    const {user} = useAuth();
-    const roles = Array.isArray(user?.roles)
-        ? user.roles
-        : typeof user?.roles === "string"
-            ? user.roles.split(/[\s,]+/).filter(Boolean)
-            : [];
-    const isAdmin = roles.includes("ROLE_ADMIN") || roles.includes("ADMIN");
+    const { user, booting } = useAuth();
+    const userId = user?.id ?? null;
 
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
 
+    const upcoming = useMemo(() => {
+        const now = Date.now();
+        return (events || [])
+            .filter((e) => new Date(e.startAt || 0).getTime() >= now)
+            .sort(byStartAsc);
+    }, [events]);
+
+    const past = useMemo(() => {
+        const now = Date.now();
+        return (events || [])
+            .filter((e) => new Date(e.startAt || 0).getTime() < now)
+            .sort(byStartAsc);
+    }, [events]);
+
     useEffect(() => {
+        if (booting) return;
+        if (!userId) {
+            setEvents([]);
+            setLoading(false);
+            setErr("");
+            return;
+        }
         let ignore = false;
         (async () => {
             try {
                 setLoading(true);
-                // 1) тягнемо мої реєстрації
-                const regs = await getMyRegistrations();
+                setErr("");
+
+                // 🔹 лише свій список через ?createdBy=
+                const data = await getEventsByAuthor({
+                    userId,
+                    page: 0,
+                    size: 1000,
+                    sort: "startAt,desc",
+                });
+
                 if (ignore) return;
-
-                const ids = Array.from(
-                    new Set(
-                        (Array.isArray(regs) ? regs : [])
-                            .map((r) => r?.event?.id ?? r?.eventId)
-                            .filter(Boolean)
-                    )
-                );
-
-                // 2) добираємо події по кожному id (безпечніше, ніж покладатись на r.event LAZY)
-                const results = [];
-                for (const id of ids) {
-                    try {
-                        const ev = await getEventById(id);
-                        results.push(ev);
-                    } catch {
-                        // ігноруємо падіння окремої події
-                    }
-                }
-                setEvents(results);
+                const items =
+                    (Array.isArray(data) && data) ||
+                    data?.content ||
+                    data?.items ||
+                    data?.results ||
+                    [];
+                setEvents(items);
             } catch (e) {
-                if (!ignore) setErr(e?.message || "Не вдалося завантажити ваші івенти");
+                if (!ignore) setErr(e?.message || "Помилка завантаження.");
             } finally {
                 if (!ignore) setLoading(false);
             }
@@ -88,34 +91,24 @@ export default function DashboardPage() {
         return () => {
             ignore = true;
         };
-    }, []);
-
-    const now = Date.now();
-    const {upcoming, past} = useMemo(() => {
-        const enriched = events.slice().sort(byStartAsc);
-        const up = [],
-            p = [];
-        for (const ev of enriched) {
-            const ts = new Date(ev.startAt || 0).getTime();
-            (ts && ts >= now ? up : p).push(ev);
-        }
-        return {upcoming: up, past: p};
-    }, [events, now]);
+    }, [booting, userId]);
 
     return (
         <div className="container py-4">
             <style>{styles}</style>
-            <div className="d-flex justify-content-between align-items-center mb-3">
-                <h1 className="mb-0">Мій кабінет</h1>
-                {isAdmin && (
-                    <Link to="/events/create" className="btn btn-outline-primary">
-                        Створити івент
-                    </Link>
-                )}
+            <div className="toolbar mb-3">
+                <h1 className="page-title">Мої івенти (я автор)</h1>
+                <div className="toolbar__right">
+                    <Link to="/events/create" className="btn btn-outline-primary">+ Створити івент</Link>
+                </div>
             </div>
-            {err && <div className="alert alert-danger">{err}</div>}
-            {loading ? (
+
+            {booting || loading ? (
                 <div>Завантаження…</div>
+            ) : err ? (
+                <div className="alert alert-danger">{err}</div>
+            ) : !userId ? (
+                <div className="muted">Щоб побачити ваші івенти як автора — увійдіть у систему.</div>
             ) : (
                 <div className="grid">
                     <section className="panel">
@@ -125,7 +118,7 @@ export default function DashboardPage() {
                         ) : (
                             <div className="list-group">
                                 {upcoming.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev}/>
+                                    <EventItem key={ev.id} ev={ev} />
                                 ))}
                             </div>
                         )}
@@ -138,19 +131,13 @@ export default function DashboardPage() {
                         ) : (
                             <div className="list-group">
                                 {past.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev}/>
+                                    <EventItem key={ev.id} ev={ev} />
                                 ))}
                             </div>
                         )}
                     </section>
                 </div>
             )}
-
-            <div className="mt-4 d-flex gap-2">
-                <Link to="/events" className="btn btn-outline-secondary">
-                    Усі івенти
-                </Link>
-            </div>
         </div>
     );
 }
@@ -168,8 +155,13 @@ const styles = `
 .card--row{ display:flex; align-items:flex-start; gap:12px; justify-content:space-between }
 .card__title{ margin:0; font-size:16px }
 .card__meta{ display:flex; gap:8px; flex-wrap:wrap }
-.chip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; border-radius:999px; background:#ffffff08; border:1px solid #ffffff12; color:var(--text) }
+.chip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 10px; border-radius:999px; background:#ffffff08; border:1px solid #ffffff12; color:var(--text) }
 .chip--ghost{ color:var(--muted) }
 .muted{ color:var(--muted) }
+.toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px }
+.page-title{ margin:0; font-size:20px }
+.btn{ padding:8px 12px; border-radius:999px; border:1px solid #ffffff22; background:#ffffff0d; color:var(--text); text-decoration:none; cursor:pointer }
+.btn-sm{ padding:6px 10px; font-size:12px }
+.btn-outline-primary{ border-color:#4c7fff66 }
 @media (max-width:900px){ .grid{ grid-template-columns:1fr } }
 `;

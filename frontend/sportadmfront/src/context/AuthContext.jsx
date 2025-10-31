@@ -1,41 +1,57 @@
+// src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { loginUser, registerUser, setToken, getToken, clearToken, userFromToken } from "@/services/auth.jsx";
+import { getMe, loginUser, registerUser, setToken, clearToken, getToken, userFromToken } from "@/services/auth.jsx";
 
 const AuthContext = createContext(null);
 
+/**
+ * Контекст авторизації:
+ * - booting: true поки ініціалізуємо стан (LS або /me)
+ * - user: { id, username, roles } | null
+ * - login(username, password)
+ * - register(username, password, role?, extra?)
+ * - logout()
+ */
 export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [booting, setBooting] = useState(true);
 
+    // Ініціалізація при старті (F5): відновити токен => запитати /me
     useEffect(() => {
-        const t = getToken();
-        if (t) {
-            const u = userFromToken(t);
-            const now = Math.floor(Date.now() / 1000);
-            if (u?.exp && u.exp < now) {
-                clearToken();
+        (async () => {
+            try {
+                const t = getToken();
+                if (!t) {
+                    setUser(null);
+                    return;
+                }
+                // На випадок, якщо /me падає, спробуємо хоча б відобразити username із токена.
+                const weakUser = userFromToken(t);
+                if (weakUser && !weakUser.id) setUser(weakUser);
+
+                const me = await getMe(); // { id, username, roles }
+                if (me && me.id) setUser(me);
+            } catch {
                 setUser(null);
-            } else {
-                setUser(u || null);
+            } finally {
+                setBooting(false);
             }
-        }
-        setBooting(false);
+        })();
     }, []);
 
+    // Публічні методи
     async function login(username, password) {
-        const { token, user } = await loginUser(username, password);
-        if (token) setToken(token);
-        const u = user || userFromToken(token);
+        const { token, user: u } = await loginUser(username, password);
+        setToken(token);
         setUser(u || null);
-        return u;
+        return { token, user: u };
     }
 
-    async function register(username, password, role) {
-        const { token, user } = await registerUser(username, password, role);
+    async function register(username, password, role = "user", extra = {}) {
+        const { token, user: u } = await registerUser(username, password, role, extra);
         if (token) setToken(token);
-        const u = user || userFromToken(token);
         setUser(u || null);
-        return u;
+        return { token, user: u };
     }
 
     function logout() {
@@ -43,7 +59,11 @@ export function AuthProvider({ children }) {
         setUser(null);
     }
 
-    const value = useMemo(() => ({ user, booting, login, register, logout }), [user, booting]);
+    const value = useMemo(
+        () => ({ user, booting, login, register, logout }),
+        [user, booting]
+    );
+
     return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

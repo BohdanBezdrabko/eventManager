@@ -1,8 +1,6 @@
 package com.example.sportadministrationsystem.service;
 
-import com.example.sportadministrationsystem.model.User;
 import com.example.sportadministrationsystem.model.UserTelegram;
-import com.example.sportadministrationsystem.repository.UserRepository;
 import com.example.sportadministrationsystem.repository.UserTelegramRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -12,34 +10,23 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class TelegramAccountProvisioner {
 
-    private final UserRepository userRepository;
     private final UserTelegramRepository userTelegramRepository;
 
     /**
-     * Створює "тіньового" користувача та зв'язок у user_telegram.
-     * Враховано, що в схемі tg_chat_id NOT NULL — ставимо tgChatId = tgUserId.
+     * Забезпечує існування запису в user_telegram і повертає його.
+     * НІЯКИХ створень записів у таблиці users.
      */
     @Transactional
-    public User provisionShadow(Long tgUserId, String tgUsername, String firstName, String lastName) {
-        // username має бути унікальним; формуємо стабільний
-        String username = (tgUsername != null && !tgUsername.isBlank())
-                ? tgUsername
-                : ("tg_" + tgUserId);
+    public UserTelegram ensure(org.telegram.telegrambots.meta.api.objects.User tg) {
+        Long tgUserId = tg.getId();
+        Long chatIdAsPrivate = tg.getId(); // для приватних чатів під час натискання кнопки
 
-        // Мінімально необхідні поля
-        User user = User.builder()
-                .username(username)
-                .password("tg-shadow") // не використовується для логіну; головне — NOT NULL
-                .build();
-        user = userRepository.save(user);
-
-        UserTelegram ut = UserTelegram.builder()
-                .user(user)
-                .tgUserId(tgUserId)
-                .tgChatId(tgUserId) // важливо для NOT NULL у схемі
-                .build();
-        userTelegramRepository.save(ut);
-
-        return user;
+        return userTelegramRepository.findByTgUserId(tgUserId)
+                .orElseGet(() -> userTelegramRepository.save(
+                        UserTelegram.builder()
+                                .tgUserId(tgUserId)
+                                .tgChatId(chatIdAsPrivate)
+                                .build()
+                ));
     }
 }

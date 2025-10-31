@@ -1,152 +1,194 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { getAllEvents } from "@/services/events.jsx";
-import { registerForEvent } from "@/services/eventRegistrations.jsx";
 import { useAuth } from "@/context/AuthContext";
 
-function pick(...xs) { return xs.find(v => v !== undefined && v !== null && v !== ""); }
-function parseWhen(e) { return pick(e.startAt, e.start_at, e.start, e.date, e.datetime); }
-function toDateSafe(iso) { const d = new Date(iso); return Number.isNaN(d) ? null : d; }
-function fmtDateTime(iso) { if (!iso) return "без дати"; const d = toDateSafe(iso); return d ? d.toLocaleString() : String(iso); }
+function fmt(dt) { return dt ? new Date(dt).toLocaleString() : "—"; }
+const DEBOUNCE_MS = 350;
+
+// 🔧 Нормалізація відповіді бекенда (Page/масив/різні ключі)
+function normalizeList(d) {
+    if (Array.isArray(d)) return d;
+    if (!d || typeof d !== "object") return [];
+    return d.content ?? d.items ?? d.results ?? d.data ?? d.list ?? [];
+}
 
 export default function EventsPage() {
     const { user } = useAuth();
-    const roles = Array.isArray(user?.roles)
-        ? user.roles
-        : typeof user?.roles === "string"
-            ? user.roles.split(/[\s,]+/).filter(Boolean)
-            : [];
-    const isAdmin = roles.includes("ROLE_ADMIN") || roles.includes("ADMIN");
+    const roles = useMemo(() => {
+        const r = Array.isArray(user?.roles)
+            ? user.roles
+            : typeof user?.roles === "string"
+                ? user.roles.split(/[\s,]+/).filter(Boolean)
+                : [];
+        return r;
+    }, [user]);
+
+    const isAdmin = roles.includes("ADMIN") || roles.includes("SUPER_ADMIN");
 
     const [items, setItems] = useState([]);
     const [q, setQ] = useState("");
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
+    const timerRef = useRef(null);
 
     useEffect(() => {
-        let ignore = false;
-        (async () => {
+        let alive = true;
+
+        async function fetchAll() {
+            const data = await getAllEvents();
+            return normalizeList(data); // ⬅️ було data.items || []
+        }
+
+        async function fetchByName(name) {
+            // 1) Пробуємо бекендовий пошук /by-name/{name}
             try {
-                setLoading(true);
-                const data = await getAllEvents(q ? { q } : undefined);
-                if (!ignore) setItems(Array.isArray(data) ? data : data?.content || []);
-            } catch (e) { if (!ignore) setErr(e?.message || "Не вдалося завантажити список"); }
-            finally { if (!ignore) setLoading(false); }
-        })();
-        return () => { ignore = true; };
+                const resp = await fetch(`/api/v1/events/by-name/${encodeURIComponent(name)}`, {
+                    headers: { "Accept": "application/json" },
+                });
+                if (resp.ok) {
+                    const json = await resp.json();
+                    return normalizeList(json); // ⬅️ було json.items || []
+                }
+            } catch {
+                // ігноруємо — перейдемо на фолбек
+            }
+
+            // 2) Фолбек: тягнемо всі й фільтруємо локально
+            const all = await fetchAll();
+            const qLower = name.toLowerCase();
+            return all.filter(e => String(e?.name || "").toLowerCase().includes(qLower));
+        }
+
+        function run() {
+            (async () => {
+                try {
+                    setErr("");
+                    setLoading(true);
+
+                    const query = q.trim();
+                    let list;
+                    if (query.length === 0) {
+                        list = await fetchAll();
+                    } else if (query.length >= 2) {
+                        list = await fetchByName(query);
+                    } else {
+                        // надто короткий запит — не мучимо бекенд, просто нічого не шукаємо
+                        list = await fetchAll();
+                    }
+
+                    if (!alive) return;
+                    setItems(list);
+                } catch (e) {
+                    if (!alive) return;
+                    setErr(e?.message || "Не вдалося отримати список івентів.");
+                } finally {
+                    if (alive) setLoading(false);
+                }
+            })();
+        }
+
+        // debounce
+        clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(run, DEBOUNCE_MS);
+
+        return () => {
+            alive = false;
+            clearTimeout(timerRef.current);
+        };
     }, [q]);
-
-    const filtered = useMemo(() => {
-        if (!q) return items;
-        const s = q.trim().toLowerCase();
-        return items.filter(e => `${e.name||e.title||""} ${e.location||""}`.toLowerCase().includes(s));
-    }, [items, q]);
-
-    const onQuickRegister = useCallback(async (id) => {
-        try {
-            await registerForEvent(id);
-            alert("Зареєстровано");
-        } catch (e) { alert(e?.message || "Помилка реєстрації"); }
-    }, []);
 
     return (
         <div className="container py-4">
             <style>{styles}</style>
+
             <div className="toolbar">
-                <input className="search" placeholder="Пошук…" value={q} onChange={e=>setQ(e.target.value)} />
-                {isAdmin && <Link to="/events/create" className="btn">Створити івент</Link>}
+                <h1 className="page-title">Івенти</h1>
+                <div className="toolbar__right">
+                    <input
+                        className="input"
+                        placeholder="Пошук…"
+                        value={q}
+                        onChange={(e) => setQ(e.target.value)}
+                    />
+                    {isAdmin && <Link className="btn btn-outline-primary" to="/events/create">+ Івент</Link>}
+                </div>
             </div>
 
-            {err && <div className="alert alert-danger">{err}</div>}
-            {loading ? (
-                <div>Завантаження…</div>
-            ) : (
-                <div className="grid">
-                    {filtered.map(ev => (
-                        <div key={ev.id} className="card">
-                            <h4 className="card__title"><Link to={`/events/${ev.id}`}>{ev.name || ev.title || "Подія"}</Link></h4>
-                            <div className="card__meta">
-                                <span className="chip">{fmtDateTime(parseWhen(ev))}</span>
-                                <span className="chip chip--ghost">{ev.location || "—"}</span>
+            <div className="panel">
+                {loading ? (
+                    <div className="muted py-2">Завантаження…</div>
+                ) : err ? (
+                    <div className="alert alert-danger">{err}</div>
+                ) : items.length === 0 ? (
+                    <div className="muted py-2">Нічого не знайдено.</div>
+                ) : (
+                    <div className="list">
+                        {items.map((e) => (
+                            <div className="card card--row" key={e.id}>
+                                <div className="card__main">
+                                    <h4 className="card__title">
+                                        <Link to={`/events/${e.id}`}>{e.name || `Івент #${e.id}`}</Link>
+                                    </h4>
+                                    <div className="card__meta">
+                                        <span className="chip">{fmt(e.startAt)}</span>
+                                        <span className="chip chip--ghost">{e.location || "—"}</span>
+                                    </div>
+                                </div>
+                                <div className="card__aside">
+                                    <div className="buttons">
+                                        <Link className="btn btn-outline-primary btn-sm" to={`/events/${e.id}`}>Деталі</Link>
+                                        {isAdmin && (
+                                            <Link className="btn btn-ghost btn-sm" to={`/events/${e.id}/posts/create`}>+ Пост</Link>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <div className="card__footer">
-                                <button className="btn ghost" onClick={() => onQuickRegister(ev.id)}>Зареєструватися</button>
-                                <Link to={`/events/${ev.id}`} className="btn">Детальніше</Link>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
+                        ))}
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
 
 const styles = `
-:root{ --panel:#0f1530; --panel2:#0b1428; --text:#e7eaf2; --muted:#93a0b5 }
-*{ box-sizing:border-box }
-a{ color:inherit; text-decoration:none }
-
+:root{
+  --bg:#0b121a; --panel:#0f1318; --panel-2:#121922; --line:#1f2a37;
+  --text:#e9f0f6; --muted:#9fb3c8; --accent:#2f88ff; --accent-2:#2473da;
+  --radius:14px;
+}
 .container{ color:var(--text) }
-
-.toolbar{ display:flex; gap:12px; margin-bottom:16px }
-.search{ flex:1; min-width:280px; padding:10px 12px; border-radius:10px; border:1px solid #ffffff22; background:var(--panel2); color:var(--text) }
-
-.grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:14px }
-
-.card{
-  background:var(--panel);
-  border:1px solid #ffffff19;
-  border-radius:14px;
-  padding:14px;
-  display:flex;
-  flex-direction:column;
-  gap:10px;
-  overflow:hidden; /* не дає елементам “вилазити” за межі */
+.page-title{ margin:0 }
+.toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px }
+.toolbar__right{ display:flex; align-items:center; gap:10px }
+.input{
+  background:var(--panel-2); border:1px solid #ffffff1a; color:var(--text);
+  padding:10px 12px; border-radius:10px; outline:none; min-width:220px
 }
-
-.card__title{ margin:0 }
+.input::placeholder{ color:var(--muted) }
+.panel{ background:var(--panel); border:1px solid #ffffff19; border-radius:16px; padding:16px }
+.list{ display:flex; flex-direction:column; gap:12px }
+.card{ background:var(--panel-2); border:1px solid #ffffff14; border-radius:var(--radius); padding:14px }
+.card--row{ display:flex; align-items:flex-start; gap:12px; justify-content:space-between }
+.card__title{ margin:0 0 4px 0; font-size:16px }
 .card__meta{ display:flex; gap:8px; flex-wrap:wrap }
-
-.chip{
-  display:inline-flex; align-items:center; gap:6px;
-  font-size:12px; padding:4px 8px; border-radius:999px;
-  background:#ffffff08; border:1px solid #ffffff12; color:var(--text)
-}
+.chip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 8px; border-radius:999px;
+  background:#ffffff08; border:1px solid #ffffff12; color:var(--text) }
 .chip--ghost{ color:var(--muted) }
-
-.card__footer{
-  margin-top:auto;
-  display:flex;
-  gap:8px;
-  justify-content:flex-end;
-  align-items:center;
-  flex-wrap:wrap; /* щоб кнопки переносились, а не ламали верстку */
-}
-
+.buttons{ display:flex; gap:8px; justify-content:flex-end }
 .btn{
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  gap:6px;
-  padding:10px 14px;
-  border-radius:10px;
-  border:1px solid #7a90ff55;
-  background:linear-gradient(145deg, #6aa3ff, #7f72ff);
-  color:#fff;
-  line-height:1;
-  white-space:nowrap;  /* не переносити текст кнопки */
-  cursor:pointer;
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 12px;
+  border-radius:10px; border:1px solid #ffffff22; cursor:pointer; text-decoration:none;
+  font-weight:600; font-size:14px; transition:transform .06s ease, background .15s ease, border-color .15s ease; user-select:none; color:var(--text)
 }
-
-.btn.ghost{
-  background:#ffffff08;
-  border:1px solid #ffffff22;
-}
-
-/* мобільний UX: кнопки стають у рядок на всю ширину */
-@media (max-width:560px){
-  .grid{ grid-template-columns:1fr }
-  .card__footer{ justify-content:stretch }
-  .card__footer .btn{ flex:1 }
-}
-`;
+.btn-sm{ padding:6px 10px; font-size:13px }
+.btn:active{ transform:translateY(1px) }
+.btn-outline-primary{ background:transparent; border-color:var(--accent-2) }
+.btn-outline-primary:hover{ background:#0f1a2a }
+.btn-ghost{ background:#ffffff10; border-color:#ffffff20 }
+.btn-ghost:hover{ background:#ffffff18 }
+.muted{ color:var(--muted) }
+.alert{ padding:12px; border-radius:10px }
+.alert-danger{ background:#3b0f14; border:1px solid #a83a46; color:#ffd5d8 }
+@media (max-width:720px){ .toolbar{ flex-direction:column; align-items:stretch } .toolbar__right{ justify-content:space`;

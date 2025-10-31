@@ -7,8 +7,8 @@ import lombok.*;
 @Table(
         name = "event_subscriptions",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_event_user_messenger",
-                columnNames = {"event_id", "user_id", "messenger"} // V10 + унікальний ключ
+                name = "uq_event_userTelegram_messenger",
+                columnNames = {"event_id", "user_telegram_id", "messenger"}
         )
 )
 @Getter @Setter
@@ -19,20 +19,19 @@ public class EventSubscription {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)  // V10: event_id FK
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "event_id", nullable = false)
     private Event event;
 
-    @ManyToOne(optional = false, fetch = FetchType.LAZY)  // V10: user_id FK
-    @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    // тепер підписник — це Telegram-користувач
+    @ManyToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_telegram_id", nullable = false)
+    private UserTelegram userTelegram;
 
-    // V13: messenger VARCHAR(16) + CHECK('TELEGRAM')
     @Enumerated(EnumType.STRING)
     @Column(name = "messenger", nullable = false, length = 16)
     private Messenger messenger;
 
-    // V10: active BOOLEAN NOT NULL DEFAULT TRUE ; V15: колонку created_at видалено
     @Builder.Default
     @Column(name = "active", nullable = false)
     private boolean active = true;

@@ -1,25 +1,37 @@
 @baseUrl = http://localhost:8081
-@admin_username = admin12313213
+@admin_username = adm23
 @admin_password = admin123
-# За потреби: канал/чат для публічного поста (ID каналу, наприклад -100xxxxxxxxxx, або порожньо — візьметься з application.yml)
+
+# Для верифікації з боку звичайного юзера (опційно).
+# ЦЕ НЕ ПІДПИСКА ЧЕРЕЗ REST — підписка буде ЛИШЕ через Telegram кнопку.
+@user_username = user1122
+@user_password = user123
+
+# Канал/чат для публічного поста (наприклад -1003137847951).
 @tg_channel_chat_id = -1003137847951
 
-### 0) Обчислюємо часи
-### 0) Обчислюємо часи
+### 0) Обчислюємо часи (now, post1, post2, startAt, remindAt)
 GET {{baseUrl}}/
 
 > {%
-    function iso(d){ const z=new Date(d.getTime()-d.getTimezoneOffset()*60000); return z.toISOString().slice(0,19); }
-    const now = new Date();
-    const postAt = new Date(now.getTime() + 1*60000);   // +1 хв
-    const start  = new Date(now.getTime() + 7*60000);   // +7 хв
-    const remind = new Date(start.getTime() - 5*60000); // старт - 5 хв
-    client.global.set("now_iso", iso(now));
-    client.global.set("post_at", iso(postAt));
+    function iso(d){
+        const z = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+        return z.toISOString().slice(0,19); // "YYYY-MM-DDTHH:mm:ss"
+    }
+    const now    = new Date();
+    const post1  = new Date(now.getTime() + 1*60000);  // +1 хв — перший публічний пост
+    const post2  = new Date(now.getTime() + 2*60000);  // +2 хв — другий публічний пост
+    const start  = new Date(now.getTime() + 7*60000);  // +7 хв — початок івента
+    const remind = new Date(start.getTime() - 5*60000);// старт - 5 хв — DM-нагадування
+
+    client.global.set("now_iso",        iso(now));
+    client.global.set("post1_at",       iso(post1));
+    client.global.set("post2_at",       iso(post2));
     client.global.set("event_start_at", iso(start));
-    client.global.set("remind_at", iso(remind));
+    client.global.set("remind_at",      iso(remind));
 %}
-### 1) Реєстрація АДМІНА (або залогінитись, якщо 409)
+
+### 1) Реєстрація АДМІНА (якщо вже є — 409, тоді 1.1)
 POST {{baseUrl}}/api/v1/auth/register
 Content-Type: application/json
 
@@ -32,38 +44,45 @@ Content-Type: application/json
     client.global.set("admin_access_token", response.body.accessToken || (response.body.user && response.body.user.accessToken));
 %}
 
-### 1.1) (якщо 409) Login ADMIN
- POST {{baseUrl}}/api/v1/auth/login
-    Content-Type: application/json
+### 1.1) (fallback) Логін АДМІНА
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
 
-{ "username":"{{admin_username}}", "password":"{{admin_password}}" }
+{
+  "username": "{{admin_username}}",
+  "password": "{{admin_password}}"
+}
 > {%
-    client.global.set("admin_access_token", response.body.accessToken);
+    if (response.body && response.body.accessToken) {
+        client.global.set("admin_access_token", response.body.accessToken);
+    }
 %}
 
-### 2) Створюємо подію (старт через 7 хв)
+### 2) Створюємо івент (старт через 7 хв). Поле "url" увімкне другу кнопку-лінк у TG-пості.
 POST {{baseUrl}}/api/v1/events
 Authorization: Bearer {{admin_access_token}}
 Content-Type: application/json
 
 {
-  "name": "TG Reminder E2E",
+  "name": "Pereviro4ka",
   "startAt": "{{event_start_at}}",
   "location": "Sport Hall",
-  "capacity": 100,
-  "description": "Е2Е перевірка TG-нагадування",
+  "capacity": 20,
+  "description": "Перевірка TG-нагадування та кнопки-лінка",
   "category": "SPORTS",
-  "tags": ["tg","reminder","e2e"]
+  "tags": ["tg","reminder","e2e"],
+  "coverUrl": "https://example.com/tickets"
 }
 > {%
     client.global.set("event_id", response.body.id);
 %}
 
-### 2.1) Перевіряємо івент
+### 2.1) Перевіряємо створений івент
 GET {{baseUrl}}/api/v1/events/{{event_id}}
 Authorization: Bearer {{admin_access_token}}
 
-### 3) Публічний пост у канал із кнопкою “Зареєструватися” (SCHEDULED через 1 хв)
+### 3) Публічний пост #1 у канал (SCHEDULED на +1 хв).
+# У Telegram має бути кнопка "Зареєструватися" + кнопка-лінк із url івента.
 POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
 Authorization: Bearer {{admin_access_token}}
 Content-Type: application/json
@@ -71,17 +90,85 @@ Content-Type: application/json
 {
   "title": "Змагання скоро! Натисніть, щоб зареєструватися",
   "body": "Реєстрація в 1 клік. Нагадування прийде перед стартом.",
-  "publishAt": "{{post_at}}",
+  "publishAt": "{{post1_at}}",
   "audience": "PUBLIC",
   "channel": "TELEGRAM",
   "status": "SCHEDULED",
   "telegramChatId": "{{tg_channel_chat_id}}"
 }
 > {%
-    client.global.set("post_id_public", response.body.id);
+    client.global.set("post_id_public_1", response.body.id);
 %}
 
-### 4) Створюємо DM-нагадування для підписників (startAt - 5 хв)
+### 3.1) Публічний пост #2 для того ж івента (SCHEDULED на +2 хв).
+POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
+Authorization: Bearer {{admin_access_token}}
+Content-Type: application/json
+
+{
+  "title": "Додатковий анонс: місць обмежено",
+  "body": "Не зволікай — зареєструйся зараз. Старт о {{event_start_at}}.",
+  "publishAt": "{{post2_at}}",
+  "audience": "PUBLIC",
+  "channel": "TELEGRAM",
+  "status": "SCHEDULED",
+  "telegramChatId": "{{tg_channel_chat_id}}"
+}
+> {%
+    client.global.set("post_id_public_2", response.body.id);
+%}
+
+### 3.2) Саніті: список SCHEDULED TELEGRAM-постів (очікуємо 2 публічні)
+GET {{baseUrl}}/api/v1/events/{{event_id}}/posts?status=SCHEDULED&channel=TELEGRAM
+Authorization: Bearer {{admin_access_token}}
+
+### 4) [ДІЯ В TELEGRAM] Коли пост #1 опублікується — натисни "Зареєструватися".
+# ЦЕЙ КРОК РОБИШ У ТЕЛЕГРАМ. Далі запускай перевірки 4.1 / 4.2.
+
+### 4.1) Перевірка як АДМІН: список підписників івента (варіант А — subscribers)
+# Обери той шлях, який є у твоєму бекенді.
+GET {{baseUrl}}/api/v1/events/{{event_id}}/subscribers
+Authorization: Bearer {{admin_access_token}}
+
+### 4.2) Перевірка як АДМІН: список підписок на івент (варіант Б — subscriptions)
+# Якщо у проєкті інша назва роута — використай її.
+GET {{baseUrl}}/api/v1/events/{{event_id}}/subscriptions
+Authorization: Bearer {{admin_access_token}}
+
+### 4.3) (Опціонально) Перевірка від імені ЮЗЕРА через REST (лише якщо маєш токен юзера)
+# Це не створює підписку — лише показує, що вона з'явилась після кліку в Telegram.
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "username": "{{user_username}}",
+  "password": "{{user_password}}",
+  "role": "user"
+}
+> {%
+    client.global.set("user_access_token", response.body.accessToken || (response.body.user && response.body.user.accessToken));
+%}
+
+### 4.3.1) (fallback) Логін ЮЗЕРА
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{user_username}}",
+  "password": "{{user_password}}"
+}
+> {%
+    if (response.body && response.body.accessToken) {
+        client.global.set("user_access_token", response.body.accessToken);
+    }
+%}
+
+### 4.3.2) (опційно) Перевірити підписки юзера
+GET {{baseUrl}}/api/v1/me/subscriptions
+Authorization: Bearer {{user_access_token}}
+
+### 5) Створюємо DM-нагадування для ПІДПИСНИКІВ (publishAt = startAt - 5 хв)
+# Це повідомлення прийде у приватні повідомлення всім, хто підписався через Telegram-кнопку.
 POST {{baseUrl}}/api/v1/events/{{event_id}}/posts
 Authorization: Bearer {{admin_access_token}}
 Content-Type: application/json
@@ -98,21 +185,27 @@ Content-Type: application/json
     client.global.set("post_id_reminder", response.body.id);
 %}
 
-### 4.1) Саніті: список SCHEDULED перед розсилкою
+### 5.1) Саніті: тепер серед SCHEDULED TELEGRAM-постів має бути ще й SUBSCRIBERS-нагадування
 GET {{baseUrl}}/api/v1/events/{{event_id}}/posts?status=SCHEDULED&channel=TELEGRAM
 Authorization: Bearer {{admin_access_token}}
 
-### 5) (Опціонально, якщо scheduler ще не підняв) — ручний “тик” диспатчера
-# POST {{baseUrl}}/api/v1/events/{{event_id}}/posts/_dispatch-tick
-# Authorization: Bearer {{admin_access_token}}
+### 6) Перевіряємо статуси постів по ID (до/після їх publishAt)
+# Публічний пост #1
+GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_public_1}}
+Authorization: Bearer {{admin_access_token}}
 
-### 6) Після появи поста в каналі — натисни “✅ Зареєструватися”, далі /start у боті.
-# (Це ручний крок у Telegram.)
+# Публічний пост #2
+GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_public_2}}
+Authorization: Bearer {{admin_access_token}}
 
-### 7) Перевіряємо статус нагадування після часу publishAt (remind_at)
+# DM-нагадування для підписників
 GET {{baseUrl}}/api/v1/events/{{event_id}}/posts/{{post_id_reminder}}
 Authorization: Bearer {{admin_access_token}}
 
-### 7.1) (Опціонально) Всі TELEGRAM-пости зі статусом PUBLISHED
+### 6.1) (Опціонально) Всі TELEGRAM-пости зі статусом PUBLISHED
 GET {{baseUrl}}/api/v1/events/{{event_id}}/posts?status=PUBLISHED&channel=TELEGRAM
+Authorization: Bearer {{admin_access_token}}
+
+### 6.2) (Опціонально) Всі TELEGRAM-пости зі статусом FAILED
+GET {{baseUrl}}/api/v1/events/{{event_id}}/posts?status=FAILED&channel=TELEGRAM
 Authorization: Bearer {{admin_access_token}}

@@ -1,46 +1,58 @@
-import {BrowserRouter, Routes, Route, Navigate} from "react-router-dom";
-import {AuthProvider} from "@/context/AuthContext";
+// src/App.jsx
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider } from "@/context/AuthContext";
 import AppLayout from "@/layouts/AppLayout.jsx";
+import { PrivateRoute } from "@/components/RouteGuards.jsx";
+
+// публічні
 import LandingPage from "@/pages/LandingPage.jsx";
 import LoginPage from "@/pages/LoginPage.jsx";
 import RegisterPage from "@/pages/RegisterPage.jsx";
+import NotFoundPage from "@/pages/NotFoundPage.jsx";
+
+// приватні
 import DashboardPage from "@/pages/DashboardPage.jsx";
 import EventsPage from "@/pages/EventsPage.jsx";
-import NotFoundPage from "@/pages/NotFoundPage.jsx";
 import EventDetailPage from "@/pages/EventDetailPage.jsx";
 import CreateEventPage from "@/pages/CreateEventPage.jsx";
-import { PrivateRoute, PublicOnlyRoute, AdminRoute } from "@/components/RouteGuards.jsx";
+
+import CreatePostPage from "@/pages/CreatePostPage.jsx";
+import EditPostPage from "@/pages/EditPostPage.jsx";
+import PostDetailPage from "@/pages/PostDetailPage.jsx";
 
 export default function App() {
     return (
-        <AuthProvider>
-            <BrowserRouter>
+        <BrowserRouter>
+            <AuthProvider>
                 <Routes>
-                    <Route element={<AppLayout/>}>
-                        <Route index element={<LandingPage/>}/>
-                        <Route path="home" element={<Navigate to="/" replace/>}/>
-                        <Route path="events" element={<EventsPage/>}/>
-                        <Route path="events/:id" element={<EventDetailPage/>}/>
+                    {/* Публічні */}
+                    <Route element={<AppLayout />}>
+                        <Route index element={<LandingPage />} />
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/register" element={<RegisterPage />} />
 
-                        <Route path="dashboard" element={
-                            <PrivateRoute><DashboardPage/></PrivateRoute>
-                        }/>
+                        {/* Приватні маршрути під AppLayout */}
+                        <Route element={<PrivateRoute />}>
+                            <Route path="/dashboard" element={<DashboardPage />} />
 
-                        <Route path="events/create" element={
-                            <AdminRoute><CreateEventPage/></AdminRoute>
-                        }/>
+                            {/* Івенти */}
+                            <Route path="/events" element={<EventsPage />} />
+                            <Route path="/events/create" element={<CreateEventPage />} />
+                            <Route path="/events/:id" element={<EventDetailPage />} />
 
-                        <Route path="login" element={
-                            <PublicOnlyRoute><LoginPage/></PublicOnlyRoute>
-                        }/>
-                        <Route path="register" element={
-                            <PublicOnlyRoute><RegisterPage/></PublicOnlyRoute>
-                        }/>
+                            {/* Пости по івенту */}
+                            <Route path="/events/:id/posts/create" element={<CreatePostPage />} />
+                            <Route path="/events/:id/posts/:postId" element={<PostDetailPage />} />
+                            <Route path="/events/:id/posts/:postId/edit" element={<EditPostPage />} />
+                        </Route>
 
-                        <Route path="*" element={<NotFoundPage/>}/>
+                        {/* Редіректи + 404 */}
+                        <Route path="/events/new" element={<Navigate to="/events/create" replace />} />
+                        <Route path="/home" element={<Navigate to="/" replace />} />
+                        <Route path="*" element={<NotFoundPage />} />
                     </Route>
                 </Routes>
-            </BrowserRouter>
-        </AuthProvider>
+            </AuthProvider>
+        </BrowserRouter>
     );
 }

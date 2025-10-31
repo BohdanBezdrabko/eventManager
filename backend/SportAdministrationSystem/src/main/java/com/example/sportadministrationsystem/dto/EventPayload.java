@@ -12,20 +12,23 @@ import java.util.List;
 public class EventPayload {
     @NotBlank
     private String name;
+
     @NotNull
     private LocalDateTime startAt;
-    @NotBlank
+
     private String location;
+
     @Positive
     private Integer capacity;
+
     @Size(max = 2048)
     private String description;
+
     @Size(max = 2048)
     private String coverUrl;
 
-    // нове
     @Size(max = 64)
-    private String category;        // SPORTS|EDUCATION|MUSIC|COMMUNITY|OTHER
+    private String category;                    // приходить як String
 
     private List<@Size(max = 128) String> tags; // імена тегів
 }

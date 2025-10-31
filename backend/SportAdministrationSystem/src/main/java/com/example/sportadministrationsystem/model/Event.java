@@ -3,15 +3,18 @@ package com.example.sportadministrationsystem.model;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
-
+import com.example.sportadministrationsystem.model.User;
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 
 @Entity
 @Table(name = "events")
-@Getter @Setter
-@NoArgsConstructor @AllArgsConstructor @Builder
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Event {
 
     @Id
@@ -37,20 +40,22 @@ public class Event {
 
     @Column                                  // V5: capacity INTEGER
     private Integer capacity;
-
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
     @Column(columnDefinition = "TEXT")       // V5: description TEXT
     private String description;
 
     @Column(name = "cover_url")              // V5: cover_url TEXT
     private String coverUrl;
 
-    @Enumerated(EnumType.STRING)             // V6: category VARCHAR(64)
+    @Enumerated(EnumType.STRING)
     @Column(name = "category", length = 64)
     private EventCategory category;
 
     @ManyToMany
     @JoinTable(
-            name = "event_tags",             // V6: event_tags(event_id, tag_id)
+            name = "event_tags",
             joinColumns = @JoinColumn(name = "event_id"),
             inverseJoinColumns = @JoinColumn(name = "tag_id")
     )

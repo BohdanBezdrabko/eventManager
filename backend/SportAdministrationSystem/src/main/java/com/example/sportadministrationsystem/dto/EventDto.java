@@ -1,4 +1,3 @@
-// dto/EventDto.java
 package com.example.sportadministrationsystem.dto;
 
 import java.time.LocalDateTime;
@@ -12,6 +11,8 @@ public record EventDto(
         Integer capacity,
         String description,
         String coverUrl,
-        String category,
-        List<String> tags
+        String category,          // ENUM name або null
+        List<String> tags,        // список назв тегів
+        Long createdBy,           // id автора (може бути null)
+        String createdByUsername  // username автора (може бути null)
 ) {}
