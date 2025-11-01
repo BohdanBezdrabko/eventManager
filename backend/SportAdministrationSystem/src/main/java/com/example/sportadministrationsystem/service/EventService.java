@@ -13,15 +13,16 @@ import com.example.sportadministrationsystem.repository.TagRepository;
 import com.example.sportadministrationsystem.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -31,88 +32,119 @@ public class EventService {
     private final TagRepository tagRepository;
     private final UserRepository userRepository;
 
-    // Якщо маєш генератор постів — заінжекть через конструктор; якщо ні — залиш null.
-    private final PostGenerationService postGenerationService = null;
+    /** Конкретний сервіс генерації постів — він є у твоєму контексті. */
+    @Autowired(required = false)
+    private PostGenerationService postGenerationService;
 
-    /* ============================================================
-       Списки / Пошук
-       ============================================================ */
+    /* ======================= READ ======================= */
 
+    /** Загальний лістинг з опційними фільтрами category/tag і пагінацією. */
     @Transactional(Transactional.TxType.SUPPORTS)
     public Page<EventDto> list(String category, String tag, Pageable pageable) {
-        EventCategory cat = parseCategoryOrNull(category);
-        String tagName = normalizeOrNull(tag);
+        // Якщо є прості фільтри — зробимо їх в пам’яті, але дані беремо вже відсортовані.
+        Page<Event> page = eventRepository.findAll(pageable);
+        List<Event> content = page.getContent();
 
-        if (cat == null && tagName == null) {
-            return eventRepository.findAll(pageable).map(this::toDto);
+        EventCategory categoryEnum = parseCategory(category);
+        String tagNorm = normalize(tag);
+
+        if (categoryEnum != null) {
+            content = content.stream().filter(e -> e.getCategory() == categoryEnum).toList();
         }
-        if (cat != null && tagName == null) {
-            return eventRepository.findByCategory(cat, pageable).map(this::toDto);
+        if (tagNorm != null) {
+            String tl = tagNorm.toLowerCase(Locale.ROOT);
+            content = content.stream().filter(e -> eventHasTag(e, tl)).toList();
         }
-        if (cat == null /* && tagName != null */) {
-            return eventRepository.findByTagName(tagName, pageable).map(this::toDto);
-        }
-        return eventRepository.findByCategoryAndTag(cat, tagName, pageable).map(this::toDto);
-    }
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public Event getEvent(Long id) {
-        return eventRepository.findById(id)
-                .orElseThrow(() -> new NotFoundException("Event not found: id=" + id));
+
+        return new PageImpl<>(content, pageable, page.getTotalElements()).map(this::toDto);
     }
 
+    /** Пагінована вибірка за автором — для дашборда. */
     @Transactional(Transactional.TxType.SUPPORTS)
     public Page<EventDto> listByAuthor(Long userId, Pageable pageable) {
-        userRepository.findById(userId)
-                .orElseThrow(() -> new NotFoundException("User not found: id=" + userId));
-        return eventRepository.findByCreatedById(userId, pageable).map(this::toDto);
+        if (userId == null) return Page.empty(pageable);
+        Page<Event> page = eventRepository.findByCreatedById(userId, pageable);
+        return page.map(this::toDto);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
-    public EventDto getEventById(Long id) {
-        Event e = eventRepository.findById(id)
+    public EventDto getById(Long id) {
+        Event e = eventRepository.findWithTagsById(id)
                 .orElseThrow(() -> new NotFoundException("Event not found: id=" + id));
         return toDto(e);
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<EventDto> findByName(String name) {
-        String needle = name == null ? "" : name.toLowerCase(Locale.ROOT);
+        String n = normalize(name);
+        if (n == null) return List.of();
         return eventRepository.findAll().stream()
-                .filter(e -> Objects.toString(e.getName(), "").toLowerCase(Locale.ROOT).contains(needle))
+                .filter(e -> containsIgnoreCase(e.getName(), n))
                 .map(this::toDto)
-                .collect(Collectors.toList());
+                .toList();
     }
 
     @Transactional(Transactional.TxType.SUPPORTS)
     public List<EventDto> findByLocation(String location) {
-        String needle = location == null ? "" : location.toLowerCase(Locale.ROOT);
+        String n = normalize(location);
+        if (n == null) return List.of();
         return eventRepository.findAll().stream()
-                .filter(e -> Objects.toString(e.getLocation(), "").toLowerCase(Locale.ROOT).contains(needle))
+                .filter(e -> containsIgnoreCase(e.getLocation(), n))
                 .map(this::toDto)
-                .collect(Collectors.toList());
+                .toList();
     }
 
-    /* ============================================================
-       CRUD
-       ============================================================ */
+    /** Автор івента. Якщо автора немає — повертаємо порожній об'єкт замість 404. */
+    @Transactional(Transactional.TxType.SUPPORTS)
+    public CreatorDto getCreator(Long id) {
+        Event e = eventRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Event not found: id=" + id));
+        User u = e.getCreatedBy();
+        // Раніше тут кидали 404. Тепер віддаємо "порожнього" кріейтора,
+        // щоб клієнт міг безпечно показати івент навіть із відсутнім автором.
+        if (u == null) {
+            return new CreatorDto(null, null);
+        }
+        return new CreatorDto(u.getId(), u.getUsername());
+    }
 
+    /* ======================= WRITE ======================= */
+
+    /** Створення івенту: виставляємо автора + піднімаємо шаблони постів. */
     @Transactional
     public EventDto create(EventPayload payload) {
         Event e = new Event();
+
+        // ВАЖЛИВО: автор = поточний користувач (інакше дашборд /by-author не працюватиме коректно)
+        User current = resolveCurrentUser()
+                .orElseThrow(() -> new NotFoundException("Current user not found"));
+        e.setCreatedBy(current);
+
         applyPayload(e, payload);
         Event saved = eventRepository.save(e);
-        tryInvokePostGenerator(saved);
+
+        // Автоматична генерація постів із шаблонів під новий івент (якщо сервіс є)
+        tryEnsureTemplates(saved);
+
         return toDto(saved);
     }
 
+    /** Оновлення існуючого івенту. */
     @Transactional
     public EventDto update(Long id, EventPayload payload) {
         Event e = eventRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Event not found: id=" + id));
+
         applyPayload(e, payload);
-        return toDto(eventRepository.save(e));
+        Event saved = eventRepository.save(e);
+
+        // Підтягнемо шаблонні/планові пости під оновлений івент (якщо сервіс є)
+        tryEnsureTemplates(saved);
+
+        return toDto(saved);
     }
 
+    /** Видалення івенту. */
     @Transactional
     public void delete(Long id) {
         Event e = eventRepository.findById(id)
@@ -120,106 +152,125 @@ public class EventService {
         eventRepository.delete(e);
     }
 
-    @Transactional(Transactional.TxType.SUPPORTS)
-    public CreatorDto getCreator(Long eventId) {
-        Event e = eventRepository.findById(eventId)
-                .orElseThrow(() -> new NotFoundException("Event not found: id=" + eventId));
-        User u = e.getCreatedBy();
-        if (u == null) return new CreatorDto(null, null);
-        return new CreatorDto(u.getId(), u.getUsername());
-    }
-
-    /* ============================================================
-       Мапінг / Хелпери
-       ============================================================ */
-
-    private void applyPayload(Event e, EventPayload p) {
-        // Прості поля
-        e.setName(p.getName());
-        e.setStartAt(p.getStartAt());
-        e.setLocation(p.getLocation());
-        e.setCapacity(p.getCapacity());
-        e.setDescription(p.getDescription());
-        e.setCoverUrl(p.getCoverUrl());
-
-        // String -> enum
-        e.setCategory(parseCategoryOrNull(p.getCategory()));
-
-        // tags: List<String> -> Set<Tag> (знаходимо/створюємо теги)
-        Collection<String> src = Optional.ofNullable(p.getTags()).orElseGet(Collections::emptyList);
-        Set<String> names = src.stream()
-                .map(s -> s == null ? "" : s.trim())
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        Set<Tag> tags = new LinkedHashSet<>();
-        for (String name : names) {
-            Tag t = tagRepository.findByNameIgnoreCase(name)
-                    .orElseGet(() -> {
-                        Tag nt = new Tag();
-                        nt.setName(name);
-                        return tagRepository.save(nt);
-                    });
-            tags.add(t);
-        }
-        e.setTags(tags);
-    }
+    /* ======================= MAPPING ======================= */
 
     private EventDto toDto(Event e) {
-        // Нормалізовані значення
-        Long id = e.getId();
-        String name = e.getName();
-        LocalDateTime startAt = e.getStartAt();
-        String location = e.getLocation();
-        Integer capacity = e.getCapacity();
-        String description = e.getDescription();
-        String coverUrl = e.getCoverUrl();
-        String categoryStr = (e.getCategory() != null) ? e.getCategory().name() : null;
+        List<String> tags = (e.getTags() == null) ? List.of() :
+                e.getTags().stream()
+                        .filter(Objects::nonNull)
+                        .map(Tag::getName)
+                        .filter(Objects::nonNull)
+                        .sorted()
+                        .toList();
 
-        // Теги -> список назв (List<String>), щоб точно не було Set<Tag> -> List<String> конфлікту
-        List<String> tagList = (e.getTags() == null)
-                ? Collections.emptyList()
-                : e.getTags().stream()
-                .map(Tag::getName)
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        String category = e.getCategory() == null ? null : e.getCategory().name();
 
-        // Якщо в тебе `EventDto` — record із (category:String, tags:List<String>) — використовуємо його напряму
+        User creator = e.getCreatedBy();
+        Long createdById = (creator != null) ? creator.getId() : null;
+        String createdByUsername = (creator != null) ? creator.getUsername() : null;
+
         return new EventDto(
-                id, name, startAt, location, capacity, description, coverUrl,
-                categoryStr, tagList,
-                e.getCreatedBy() != null ? e.getCreatedBy().getId() : null,
-                e.getCreatedBy() != null ? e.getCreatedBy().getUsername() : null
+                e.getId(),
+                e.getName(),
+                e.getStartAt(),
+                e.getLocation(),
+                e.getCapacity(),
+                e.getDescription(),
+                e.getCoverUrl(),
+                category,
+                tags,
+                createdById,
+                createdByUsername
         );
     }
 
-    /* ============================================================
-       Технічні хелпери
-       ============================================================ */
+    private void applyPayload(Event e, EventPayload p) {
+        e.setName(trimOrNull(p.getName()));
+        e.setStartAt(p.getStartAt());
+        e.setLocation(trimOrNull(p.getLocation()));
+        e.setCapacity(p.getCapacity());
+        e.setDescription(trimOrNull(p.getDescription()));
+        e.setCoverUrl(trimOrNull(p.getCoverUrl()));
 
-    private boolean assignable(Class<?> a, Class<?> b) {
-        return a.isAssignableFrom(b);
+        // category
+        String categoryStr = trimOrNull(p.getCategory());
+        if (categoryStr == null) {
+            e.setCategory(null);
+        } else {
+            try {
+                e.setCategory(EventCategory.valueOf(categoryStr.toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException ex) {
+                e.setCategory(null);
+            }
+        }
+
+        // tags: імена -> сутності (id створяться/підтягнуться у відповідному сервісі/репозиторії)
+        Set<Tag> newTags = new HashSet<>();
+        if (p.getTags() != null) {
+            for (String raw : p.getTags()) {
+                String name = trimOrNull(raw);
+                if (name == null) continue;
+                // тут можна через tagRepository.findByNameIgnoreCase(name), якщо він у тебе є; якщо ні — залиш як є
+                Tag t = tagRepository.findByNameIgnoreCase(name).orElseGet(() -> {
+                    Tag nt = new Tag();
+                    nt.setName(name);
+                    return tagRepository.save(nt);
+                });
+                newTags.add(t);
+            }
+        }
+        e.setTags(newTags);
     }
 
-    private EventCategory parseCategoryOrNull(String s) {
-        String t = normalizeOrNull(s);
-        if (t == null) return null;
-        try { return EventCategory.valueOf(t); }
-        catch (IllegalArgumentException ex) { return null; }
+    /* ======================= HELPERS ======================= */
+
+    private Optional<User> resolveCurrentUser() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null) return Optional.empty();
+        return userRepository.findByUsername(auth.getName());
     }
 
-    private String normalizeOrNull(String s) {
+    private static String normalize(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t.toLowerCase(Locale.ROOT);
+    }
+
+    private static String trimOrNull(String s) {
         if (s == null) return null;
         String t = s.trim();
         return t.isEmpty() ? null : t;
     }
 
-    /** Опціональний виклик генератора постів; якщо сервіс відсутній — тихо пропускаємо. */
-    private void tryInvokePostGenerator(Event saved) {
-        if (postGenerationService == null) return;
+    private static boolean containsIgnoreCase(String haystack, String needleLower) {
+        return haystack != null && haystack.toLowerCase(Locale.ROOT).contains(needleLower);
+    }
+
+    private static boolean eventHasTag(Event e, String tagLower) {
+        return e.getTags() != null && e.getTags().stream()
+                .anyMatch(x -> x != null && x.getName() != null &&
+                        x.getName().toLowerCase(Locale.ROOT).contains(tagLower));
+    }
+
+    private EventCategory parseCategory(String category) {
+        String c = normalize(category);
+        if (c == null) return null;
         try {
-            Method m = postGenerationService.getClass().getMethod("generateInitialPostsForEvent", Event.class);
-            m.invoke(postGenerationService, saved);
-        } catch (Exception ignore) { /* нічого страшного */ }
+            return EventCategory.valueOf(c.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    /** Легкий виклик генерації шаблонних/планових постів після create/update. */
+    private void tryEnsureTemplates(Event saved) {
+        if (postGenerationService == null || saved == null) return;
+        try {
+            // У твоєму PostGenerationService є саме цей метод:
+            // public void ensureEventScheduledPosts(Event e)
+            postGenerationService.ensureEventScheduledPosts(saved);
+        } catch (Exception ignore) {
+            // не блокуємо CRUD у разі збоїв генерації
+        }
     }
 }

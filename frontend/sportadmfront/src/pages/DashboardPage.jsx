@@ -1,8 +1,18 @@
-// src/pages/DashboardPage.jsx
+// ===============================
+// File: src/pages/DashboardPage.jsx
+// ===============================
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getEventsByAuthor } from "@/services/events.jsx";
 import { useAuth } from "@/context/AuthContext";
+
+function normalizePage(resp) {
+    if (!resp || typeof resp !== "object") return { content: [], totalElements: 0 };
+    return {
+        content: resp.content ?? resp.items ?? resp.results ?? resp.data ?? resp.list ?? [],
+        totalElements: resp.totalElements ?? resp.total ?? (resp.content ? resp.content.length : 0),
+    };
+}
 
 function byStartAsc(a, b) {
     const ta = new Date(a.startAt || 0).getTime() || 0;
@@ -10,103 +20,61 @@ function byStartAsc(a, b) {
     return ta - tb;
 }
 
-function EventItem({ ev }) {
-    const start = ev.startAt ? new Date(ev.startAt).toLocaleString() : "";
-    return (
-        <div className="card card--row">
-            <div className="card__main">
-                <h4 className="card__title mb-1">
-                    <Link to={`/events/${ev.id}`}>{ev.name || ev.title || "Подія"}</Link>
-                </h4>
-                <div className="card__meta">
-                    <span className="chip">{start || "без дати"}</span>
-                    <span className="chip chip--ghost">{ev.location || "—"}</span>
-                </div>
-            </div>
-            <div className="card__aside text-end">
-                <Link to={`/events/${ev.id}`} className="btn btn-sm btn-outline-primary">Деталі</Link>
-            </div>
-        </div>
-    );
-}
-
 export default function DashboardPage() {
     const { user, booting } = useAuth();
     const userId = user?.id ?? null;
 
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState("");
+    const [page, setPage] = useState(0);
+    const [size] = useState(20);
     const [events, setEvents] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [err, setErr] = useState("");
 
-    const upcoming = useMemo(() => {
-        const now = Date.now();
-        return (events || [])
-            .filter((e) => new Date(e.startAt || 0).getTime() >= now)
-            .sort(byStartAsc);
-    }, [events]);
-
-    const past = useMemo(() => {
-        const now = Date.now();
-        return (events || [])
-            .filter((e) => new Date(e.startAt || 0).getTime() < now)
-            .sort(byStartAsc);
-    }, [events]);
+    const refresh = async (p = page) => {
+        if (!userId) return;
+        try {
+            setLoading(true);
+            setError("");
+            const res = await getEventsByAuthor({ userId, page: p, size, sort: "startAt,desc" });
+            const { content } = normalizePage(res);
+            setEvents(content);
+        } catch (e) {
+            setError(e?.message || "Не вдалося завантажити івенти");
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
-        if (booting) return;
-        if (!userId) {
-            setEvents([]);
-            setLoading(false);
-            setErr("");
-            return;
-        }
-        let ignore = false;
-        (async () => {
-            try {
-                setLoading(true);
-                setErr("");
+        if (userId) refresh(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
 
-                // 🔹 лише свій список через ?createdBy=
-                const data = await getEventsByAuthor({
-                    userId,
-                    page: 0,
-                    size: 1000,
-                    sort: "startAt,desc",
-                });
-
-                if (ignore) return;
-                const items =
-                    (Array.isArray(data) && data) ||
-                    data?.content ||
-                    data?.items ||
-                    data?.results ||
-                    [];
-                setEvents(items);
-            } catch (e) {
-                if (!ignore) setErr(e?.message || "Помилка завантаження.");
-            } finally {
-                if (!ignore) setLoading(false);
-            }
-        })();
-        return () => {
-            ignore = true;
-        };
-    }, [booting, userId]);
+    const now = Date.now();
+    const upcoming = useMemo(
+        () => events.filter((e) => new Date(e.startAt || 0).getTime() >= now).sort(byStartAsc),
+        [events]
+    );
+    const past = useMemo(
+        () => events.filter((e) => new Date(e.startAt || 0).getTime() < now).sort(byStartAsc),
+        [events]
+    );
 
     return (
         <div className="container py-4">
             <style>{styles}</style>
-            <div className="toolbar mb-3">
-                <h1 className="page-title">Мої івенти (я автор)</h1>
+
+            <div className="toolbar">
+                <h1 className="page-title">Мій дашборд</h1>
                 <div className="toolbar__right">
-                    <Link to="/events/create" className="btn btn-outline-primary">+ Створити івент</Link>
+                    {userId && <Link className="btn btn-outline-primary" to="/events/create">+ Створити івент</Link>}
                 </div>
             </div>
 
             {booting || loading ? (
-                <div>Завантаження…</div>
-            ) : err ? (
-                <div className="alert alert-danger">{err}</div>
+                <div className="muted">Завантаження…</div>
+            ) : error ? (
+                <div className="alert alert-danger">{error}</div>
             ) : !userId ? (
                 <div className="muted">Щоб побачити ваші івенти як автора — увійдіть у систему.</div>
             ) : (
@@ -114,26 +82,54 @@ export default function DashboardPage() {
                     <section className="panel">
                         <h3 className="panel__title">Майбутні</h3>
                         {upcoming.length === 0 ? (
-                            <div className="muted">Немає</div>
+                            <div className="muted">Немає запланованих івентів.</div>
                         ) : (
-                            <div className="list-group">
+                            <ul className="list">
                                 {upcoming.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev} />
+                                    <li key={ev.id} className="card card--row">
+                                        <div>
+                                            <h4 className="card__title">
+                                                <Link to={`/events/${ev.id}`}>{ev.name}</Link>
+                                            </h4>
+                                            <div className="card__meta">
+                                                <span className="chip">{new Date(ev.startAt).toLocaleString()}</span>
+                                                {ev.location && <span className="chip chip--ghost">{ev.location}</span>}
+                                                {ev.capacity ? <span className="chip chip--ghost">{ev.capacity} місць</span> : null}
+                                            </div>
+                                        </div>
+                                        <div className="card__actions">
+                                            <Link className="btn btn-sm" to={`/events/${ev.id}`}>Відкрити</Link>
+                                            <Link className="btn btn-sm" to={`/events/${ev.id}/posts/create`}>+ Пост</Link>
+                                        </div>
+                                    </li>
                                 ))}
-                            </div>
+                            </ul>
                         )}
                     </section>
 
                     <section className="panel">
                         <h3 className="panel__title">Минулі</h3>
                         {past.length === 0 ? (
-                            <div className="muted">Немає</div>
+                            <div className="muted">Ще немає минулих івентів.</div>
                         ) : (
-                            <div className="list-group">
+                            <ul className="list">
                                 {past.map((ev) => (
-                                    <EventItem key={ev.id} ev={ev} />
+                                    <li key={ev.id} className="card card--row">
+                                        <div>
+                                            <h4 className="card__title">
+                                                <Link to={`/events/${ev.id}`}>{ev.name}</Link>
+                                            </h4>
+                                            <div className="card__meta">
+                                                <span className="chip">{ev.startAt ? new Date(ev.startAt).toLocaleString() : "—"}</span>
+                                                {ev.location && <span className="chip chip--ghost">{ev.location}</span>}
+                                            </div>
+                                        </div>
+                                        <div className="card__actions">
+                                            <Link className="btn btn-sm" to={`/events/${ev.id}`}>Деталі</Link>
+                                        </div>
+                                    </li>
                                 ))}
-                            </div>
+                            </ul>
                         )}
                     </section>
                 </div>
@@ -144,24 +140,27 @@ export default function DashboardPage() {
 
 const styles = `
 :root{
-  --bg:#0b1020; --panel:#0f1530; --panel2:#0b1428; --ring:#4c7fff; --text:#e7eaf2; --muted:#93a0b5;
+  --bg:#0b1118; --panel:#0e1622; --panel2:#111b29; --text:#e8eef6; --muted:#9fb2c7; --accent:#5b8cff; --accent-2:#4c7fff66;
 }
-.container{ color:var(--text) }
+.container{ max-width:1100px; margin:0 auto; padding:24px }
+.toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px }
+.page-title{ margin:0; font-size:22px }
 .grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px }
-.panel{ background:var(--panel); border:1px solid #ffffff19; border-radius:16px; padding:16px }
-.panel__title{ font-size:16px; color:var(--muted); margin:0 0 12px }
-.list-group{ display:flex; flex-direction:column; gap:12px }
+.panel{ background:var(--panel); border:1px solid #ffffff14; border-radius:14px; padding:14px }
+.panel__title{ margin:0 0 8px 0; font-size:16px; color:var(--text) }
+.list{ list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:10px }
 .card{ background:var(--panel2); border:1px solid #ffffff14; border-radius:14px; padding:14px }
 .card--row{ display:flex; align-items:flex-start; gap:12px; justify-content:space-between }
 .card__title{ margin:0; font-size:16px }
 .card__meta{ display:flex; gap:8px; flex-wrap:wrap }
-.chip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:6px 10px; border-radius:999px; background:#ffffff08; border:1px solid #ffffff12; color:var(--text) }
+.card__actions{ display:flex; gap:8px }
+.chip{ display:inline-flex; align-items:center; gap:6px; font-size:12px; padding:4px 8px; border-radius:999px; background:#ffffff10; border:1px solid #ffffff12; color:var(--text) }
 .chip--ghost{ color:var(--muted) }
 .muted{ color:var(--muted) }
-.toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px }
-.page-title{ margin:0; font-size:20px }
-.btn{ padding:8px 12px; border-radius:999px; border:1px solid #ffffff22; background:#ffffff0d; color:var(--text); text-decoration:none; cursor:pointer }
+.btn{ padding:8px 12px; border-radius:999px; border:1px solid #ffffff2a; background:#121c2b; text-decoration:none; cursor:pointer; color:var(--text) }
 .btn-sm{ padding:6px 10px; font-size:12px }
 .btn-outline-primary{ border-color:#4c7fff66 }
+.alert{ padding:12px; border-radius:10px }
+.alert-danger{ background:#3b0f14; border:1px solid #a83a46; color:#ffd5d8 }
 @media (max-width:900px){ .grid{ grid-template-columns:1fr } }
 `;

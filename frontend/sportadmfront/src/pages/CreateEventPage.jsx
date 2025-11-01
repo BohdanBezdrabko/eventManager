@@ -1,274 +1,145 @@
-// src/pages/CreateEventPage.jsx
+// ===============================
+// File: src/pages/CreateEventPage.jsx
+// ===============================
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { createEvent } from "@/services/events.jsx";
+
+function toIsoFromLocal(local) {
+    if (!local) return null;
+    const d = new Date(local);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
+}
 
 export default function CreateEventPage() {
     const navigate = useNavigate();
     const [form, setForm] = useState({
         name: "",
-        startAt: "", // очікуємо "YYYY-MM-DDTHH:mm" з <input type="datetime-local">
+        startAt: "",
         location: "",
         capacity: "",
         coverUrl: "",
+        category: "",
+        tags: "",
         description: "",
     });
     const [submitting, setSubmitting] = useState(false);
-    const [err, setErr] = useState(null);
+    const [err, setErr] = useState("");
 
-    function onChange(e) {
+    const onChange = (e) => {
         const { name, value } = e.target;
-        setForm((f) => ({ ...f, [name]: value }));
-    }
+        setForm((s) => ({ ...s, [name]: value }));
+    };
 
-    // Локальний datetime → ISO без часової зони (сумісно з Spring LocalDateTime)
-    function normalizeLocalDateTime(s) {
-        if (!s) return null;
-        if (s.length === 16) return s + ":00";
-        if (s.length >= 19) return s.slice(0, 19);
-        return s;
-    }
-
-    async function onSubmit(e) {
+    const onSubmit = async (e) => {
         e.preventDefault();
-        setErr(null);
-        setSubmitting(true);
         try {
+            setSubmitting(true);
+            setErr("");
             const payload = {
                 name: form.name.trim(),
-                startAt: normalizeLocalDateTime(form.startAt),
+                startAt: form.startAt ? toIsoFromLocal(form.startAt) : null,
                 location: form.location.trim(),
                 capacity: form.capacity ? Number(form.capacity) : null,
                 coverUrl: form.coverUrl?.trim() || null,
+                category: form.category?.trim() || null,
+                tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : null,
                 description: form.description?.trim() || null,
             };
-            const saved = await createEvent(payload);
-            navigate(`/events/${saved.id}`);
-        } catch (e2) {
-            setErr(e2?.message || "Помилка створення івенту");
+            const created = await createEvent(payload);
+            navigate(`/events/${created.id}`);
+        } catch (e) {
+            setErr(e?.message || "Не вдалося створити івент");
         } finally {
             setSubmitting(false);
         }
-    }
+    };
 
     return (
-        <div className="cep-wrap">
-            <div className="cep-card">
-                <h1 className="cep-title">Створити івент</h1>
+        <div className="container py-4">
+            <style>{ceStyles}</style>
 
-                {err && (
-                    <div role="alert" className="cep-alert">
-                        {err}
-                    </div>
-                )}
+            <div className="toolbar">
+                <h1 className="page-title">Створення івенту</h1>
+                <div className="toolbar__right">
+                    <Link to="/events" className="btn btn-ghost">← До списку</Link>
+                </div>
+            </div>
+
+            <div className="cep-card">
+                {err && <div className="alert alert-danger">{err}</div>}
 
                 <form onSubmit={onSubmit} className="cep-form">
-                    <div className="cep-field">
+                    <div className="cep-row">
                         <label htmlFor="name" className="cep-label">Назва</label>
-                        <input
-                            id="name"
-                            name="name"
-                            type="text"
-                            required
-                            value={form.name}
-                            onChange={onChange}
-                            placeholder="Напр., Volleyball Open"
-                            className="cep-input"
-                            autoComplete="off"
-                        />
+                        <input id="name" name="name" required value={form.name} onChange={onChange} className="cep-input" placeholder="Назва події" />
                     </div>
 
-                    <div className="cep-field">
+                    <div className="cep-row">
                         <label htmlFor="startAt" className="cep-label">Початок</label>
-                        <input
-                            id="startAt"
-                            name="startAt"
-                            type="datetime-local"
-                            required
-                            value={form.startAt}
-                            onChange={onChange}
-                            className="cep-input"
-                        />
+                        <input id="startAt" name="startAt" type="datetime-local" value={form.startAt} onChange={onChange} className="cep-input" />
                     </div>
 
-                    <div className="cep-field">
-                        <label htmlFor="location" className="cep-label">Локація</label>
-                        <input
-                            id="location"
-                            name="location"
-                            type="text"
-                            required
-                            value={form.location}
-                            onChange={onChange}
-                            placeholder="Місто, адреса або назва залу"
-                            className="cep-input"
-                            autoComplete="off"
-                        />
+                    <div className="cep-grid">
+                        <div className="cep-row">
+                            <label htmlFor="location" className="cep-label">Локація</label>
+                            <input id="location" name="location" value={form.location} onChange={onChange} className="cep-input" placeholder="Місто, адреса або назва залу" />
+                        </div>
+                        <div className="cep-row">
+                            <label htmlFor="capacity" className="cep-label">Вмістимість</label>
+                            <input id="capacity" name="capacity" type="number" min="0" value={form.capacity} onChange={onChange} className="cep-input" placeholder="Напр. 150" />
+                        </div>
                     </div>
 
-                    <div className="cep-field">
-                        <label htmlFor="capacity" className="cep-label">Місткість</label>
-                        <input
-                            id="capacity"
-                            name="capacity"
-                            type="number"
-                            min="1"
-                            inputMode="numeric"
-                            value={form.capacity}
-                            onChange={onChange}
-                            placeholder="Напр., 50"
-                            className="cep-input"
-                        />
+                    <div className="cep-grid">
+                        <div className="cep-row">
+                            <label htmlFor="coverUrl" className="cep-label">Обкладинка (URL)</label>
+                            <input id="coverUrl" name="coverUrl" value={form.coverUrl} onChange={onChange} className="cep-input" placeholder="https://…" />
+                        </div>
+                        <div className="cep-row">
+                            <label htmlFor="category" className="cep-label">Категорія</label>
+                            <input id="category" name="category" value={form.category} onChange={onChange} className="cep-input" placeholder="Напр. meetup" />
+                        </div>
                     </div>
 
-                    <div className="cep-field">
-                        <label htmlFor="coverUrl" className="cep-label">Обкладинка (URL)</label>
-                        <input
-                            id="coverUrl"
-                            name="coverUrl"
-                            type="url"
-                            value={form.coverUrl}
-                            onChange={onChange}
-                            placeholder="https://..."
-                            className="cep-input"
-                            autoComplete="off"
-                        />
+                    <div className="cep-row">
+                        <label htmlFor="tags" className="cep-label">Теги</label>
+                        <input id="tags" name="tags" value={form.tags} onChange={onChange} className="cep-input" placeholder="через кому: tech, java, spring" />
                     </div>
 
-                    <div className="cep-field">
+                    <div className="cep-row">
                         <label htmlFor="description" className="cep-label">Опис</label>
-                        <textarea
-                            id="description"
-                            name="description"
-                            rows={5}
-                            value={form.description}
-                            onChange={onChange}
-                            placeholder="Короткий опис івенту"
-                            className="cep-textarea"
-                        />
+                        <textarea id="description" name="description" rows={5} value={form.description} onChange={onChange} className="cep-input" placeholder="Короткий опис заходу" />
                     </div>
 
                     <div className="cep-actions">
-                        <button type="submit" disabled={submitting} className="btn btn-primary">
-                            {submitting ? "Створюємо" : "Створити"}
-                        </button>
                         <Link to="/events" className="btn btn-ghost">Скасувати</Link>
+                        <button className="btn btn-primary" disabled={submitting}>
+                            {submitting ? "Створення…" : "Створити івент"}
+                        </button>
                     </div>
                 </form>
             </div>
-
-            {/* CSS у цьому ж файлі */}
-            <style>{`
-        .cep-wrap {
-          --bg: #0b0d10;
-          --card: #12161b;
-          --muted: #8a94a7;
-          --text: #e6eaf0;
-          --border: #1f2630;
-          --accent: #3b82f6;
-          --accent-2: #2563eb;
-          display: grid;
-          place-items: start center;
-          min-height: 100%;
-          padding: 24px 16px;
-          background: var(--bg);
-          color: var(--text);
-        }
-        .cep-card {
-          width: 100%;
-          max-width: 760px;
-          background: var(--card);
-          border: 1px solid var(--border);
-          border-radius: 16px;
-          padding: 20px;
-          box-shadow: 0 8px 24px rgba(0,0,0,0.35);
-        }
-        .cep-title {
-          margin: 0 0 12px 0;
-          font-size: 22px;
-          font-weight: 700;
-          letter-spacing: 0.2px;
-        }
-        .cep-alert {
-          background: rgba(220, 38, 38, 0.12);
-          border: 1px solid rgba(220, 38, 38, 0.35);
-          color: #fecaca;
-          padding: 10px 12px;
-          border-radius: 10px;
-          margin-bottom: 12px;
-          font-size: 14px;
-        }
-        .cep-form { display: grid; gap: 12px; }
-        .cep-field { display: grid; gap: 6px; }
-        .cep-label {
-          font-size: 13px;
-          color: var(--muted);
-        }
-        .cep-input, .cep-textarea {
-          width: 100%;
-          background: #0f1318;
-          color: var(--text);
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          padding: 10px 12px;
-          outline: none;
-          font-size: 14px;
-          transition: border-color 0.15s ease, box-shadow 0.15s ease;
-        }
-        .cep-input:focus, .cep-textarea:focus {
-          border-color: var(--accent);
-          box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
-        }
-        .cep-input::placeholder, .cep-textarea::placeholder {
-          color: #667085;
-        }
-        .cep-textarea { resize: vertical; min-height: 110px; }
-        .cep-actions {
-          display: flex;
-          gap: 10px;
-          margin-top: 6px;
-        }
-        .btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 10px 16px;
-          border-radius: 10px;
-          border: 1px solid var(--border);
-          cursor: pointer;
-          text-decoration: none;
-          font-weight: 600;
-          font-size: 14px;
-          transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease;
-          user-select: none;
-        }
-        .btn:active { transform: translateY(1px); }
-        .btn-primary {
-          background: var(--accent);
-          border-color: var(--accent-2);
-          color: white;
-        }
-        .btn-primary:disabled {
-          opacity: 0.7;
-          cursor: default;
-        }
-        .btn-primary:hover:not(:disabled) {
-          background: var(--accent-2);
-        }
-        .btn-ghost {
-          background: transparent;
-          color: var(--text);
-        }
-        .btn-ghost:hover {
-          background: #0f1318;
-        }
-
-        @media (max-width: 560px) {
-          .cep-card { padding: 16px; border-radius: 12px; }
-          .cep-actions { flex-direction: column; align-items: stretch; }
-        }
-      `}</style>
         </div>
     );
 }
+
+const ceStyles = `
+.container{ max-width:900px; margin:0 auto; padding:24px }
+.toolbar{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px }
+.page-title{ margin:0; font-size:22px }
+.cep-card{ background:#0e1622; border:1px solid #ffffff14; border-radius:14px; padding:20px }
+.cep-form{ display:flex; flex-direction:column; gap:14px }
+.cep-grid{ display:grid; grid-template-columns:1fr 1fr; gap:14px }
+.cep-row{ display:flex; flex-direction:column; gap:6px }
+.cep-label{ font-weight:600; font-size:13px; color:#9fb2c7 }
+.cep-input{ height:40px; padding:8px 12px; border-radius:10px; border:1px solid #ffffff22; background:#0f1826; color:#e8eef6 }
+textarea.cep-input{ height:auto; resize:vertical; padding-top:10px }
+.cep-actions{ display:flex; justify-content:flex-end; gap:10px; margin-top:6px }
+.btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:8px 12px; border-radius:10px; border:1px solid #ffffff22; cursor:pointer; text-decoration:none; font-weight:600; font-size:14px; color:#e8eef6 }
+.btn-primary{ background:#1a2740; border-color:#4c7fff66 }
+.btn-ghost{ background:#0f1318; border-color:#ffffff1a }
+.alert{ padding:12px; border-radius:10px }
+.alert-danger{ background:#3b0f14; border:1px solid #a83a46; color:#ffd5d8 }
+@media (max-width:760px){ .cep-grid{ grid-template-columns:1fr } }
+`;

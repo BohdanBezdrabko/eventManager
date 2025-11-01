@@ -30,9 +30,11 @@ export default function App() {
                         <Route index element={<LandingPage />} />
                         <Route path="/login" element={<LoginPage />} />
                         <Route path="/register" element={<RegisterPage />} />
+                    </Route>
 
-                        {/* Приватні маршрути під AppLayout */}
-                        <Route element={<PrivateRoute />}>
+                    {/* Приватні */}
+                    <Route element={<PrivateRoute />}>
+                        <Route element={<AppLayout />}>
                             <Route path="/dashboard" element={<DashboardPage />} />
 
                             {/* Івенти */}
@@ -42,6 +44,8 @@ export default function App() {
 
                             {/* Пости по івенту */}
                             <Route path="/events/:id/posts/create" element={<CreatePostPage />} />
+                            {/* Аліас для сумісності з існуючими посиланнями */}
+                            <Route path="/events/:id/posts/new" element={<CreatePostPage />} />
                             <Route path="/events/:id/posts/:postId" element={<PostDetailPage />} />
                             <Route path="/events/:id/posts/:postId/edit" element={<EditPostPage />} />
                         </Route>

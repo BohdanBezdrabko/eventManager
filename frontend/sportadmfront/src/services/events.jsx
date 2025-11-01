@@ -3,8 +3,10 @@ import { authJson } from "@/services/auth.jsx";
 
 const base = "/events";
 
-export const getEventById = (id) => authJson(`${base}/${id}`);
+/** Подія за id */
+export const getEventById = (id) => authJson(`${base}/${encodeURIComponent(id)}`);
 
+/** Умовний лістинг (на майбутнє; бек може мати власний /events?...) */
 export const getAllEvents = (params) => {
     const qs = params
         ? "?" +
@@ -16,31 +18,50 @@ export const getAllEvents = (params) => {
     return authJson(`${base}${qs}`);
 };
 
-export const createEvent = (payload) =>
-    authJson(`${base}`, { method: "POST", body: JSON.stringify(payload) });
+/** Пошук */
+export const searchEventsByName = (name) =>
+    authJson(`${base}/by-name/${encodeURIComponent(name)}`);
 
-export const updateEvent = (id, payload) =>
-    authJson(`${base}/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+export const searchEventsByLocation = (location) =>
+    authJson(`${base}/by-location/${encodeURIComponent(location)}`);
 
-export const deleteEvent = (id) =>
-    authJson(`${base}/${id}`, { method: "DELETE" });
+/** Автор події */
+export const getEventCreator = (id) =>
+    authJson(`${base}/${encodeURIComponent(id)}/creator`);
 
-/** Кількість телеграм-підписок на івент */
-export const getTelegramSubscriptionCount = async (eventId) =>
-    authJson(`${base}/${encodeURIComponent(eventId)}/subscription/telegram/count`);
+/** Дерево івенту + короткі пости */
+export const getEventTree = (eventId) =>
+    authJson(`${base}/${encodeURIComponent(eventId)}/tree`);
 
-/** Події за автором — лише через ?createdBy= */
-export const getEventsByAuthor = async ({
-                                            userId,
-                                            page = 0,
-                                            size = 1000,
-                                            sort = "startAt,desc",
-                                        }) => {
-    const params = new URLSearchParams({
-        createdBy: String(userId),
-        page: String(page),
-        size: String(size),
-        sort,
-    });
-    return authJson(`${base}?${params.toString()}`);
+/** Створити / Оновити / Видалити */
+export const createEvent = (payload) => authJson(`${base}`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+});
+
+export const updateEvent = (id, payload) => authJson(`${base}/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json" },
+});
+
+export const deleteEvent = (id) => authJson(`${base}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+});
+
+/** !!! ГОЛОВНИЙ ФІКС !!!
+ * Раніше тут був запит на /events?createdBy=...
+ * Правильно: GET /events/by-author/{userId}?page=&size=&sort=
+ */
+export const getEventsByAuthor = ({ userId, page = 0, size = 20, sort = "startAt,desc" }) => {
+    if (userId === undefined || userId === null) {
+        throw new Error("getEventsByAuthor: userId is required");
+    }
+    const qs = new URLSearchParams({ page: String(page), size: String(size), sort });
+    return authJson(`${base}/by-author/${encodeURIComponent(userId)}?${qs.toString()}`);
 };
+
+/** Підписки / Telegram: кількість підписаних */
+export const getTelegramSubscriptionCount = (eventId) =>
+    authJson(`${base}/${encodeURIComponent(eventId)}/subscription/telegram/count`);

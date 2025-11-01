@@ -7,7 +7,9 @@ import com.example.sportadministrationsystem.service.EventService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -22,32 +24,36 @@ public class EventController {
 
     private final EventService eventService;
 
-    /** Список івентів з фільтрами. Підтримує ?createdBy= */
+    /* ===== List / Search ===== */
+
+    /** Загальний лістинг для сторінки «Івенти» (усі івенти). */
     @GetMapping
     public ResponseEntity<Page<EventDto>> list(
-            @RequestParam(required = false) String category,
-            @RequestParam(required = false) String tag,
-            @RequestParam(required = false) Long createdBy,
-            @PageableDefault(size = 20, sort = {"startAt"}) Pageable pageable
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "sort", defaultValue = "startAt,asc") String sort,
+            @RequestParam(name = "category", required = false) String category,
+            @RequestParam(name = "tag", required = false) String tag
     ) {
-        if (createdBy != null) {
-            return ResponseEntity.ok(eventService.listByAuthor(createdBy, pageable));
-        }
+        Pageable pageable = PageRequest.of(page, size, parseSort(sort, "startAt"));
         return ResponseEntity.ok(eventService.list(category, tag, pageable));
     }
 
-    /** Альтернативний шлях: /events/by-author/{userId} */
+    /** Дашборд: івенти конкретного автора (userId з шляху). */
     @GetMapping("/by-author/{userId}")
     public ResponseEntity<Page<EventDto>> listByAuthorPath(
             @PathVariable Long userId,
-            @PageableDefault(size = 20, sort = {"startAt"}) Pageable pageable
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "20") int size,
+            @RequestParam(name = "sort", defaultValue = "startAt,desc") String sort
     ) {
+        Pageable pageable = PageRequest.of(page, size, parseSort(sort, "startAt"));
         return ResponseEntity.ok(eventService.listByAuthor(userId, pageable));
     }
 
     @GetMapping("/{id:\\d+}")
     public ResponseEntity<EventDto> getById(@PathVariable Long id) {
-        return ResponseEntity.ok(eventService.getEventById(id));
+        return ResponseEntity.ok(eventService.getById(id));
     }
 
     @GetMapping("/by-name/{name}")
@@ -60,11 +66,12 @@ public class EventController {
         return ResponseEntity.ok(eventService.findByLocation(location));
     }
 
-    /** Автор івента */
     @GetMapping("/{id:\\d+}/creator")
     public ResponseEntity<CreatorDto> getCreator(@PathVariable Long id) {
         return ResponseEntity.ok(eventService.getCreator(id));
     }
+
+    /* ===== CRUD ===== */
 
     @PostMapping
     public ResponseEntity<EventDto> create(@Valid @RequestBody EventPayload payload) {
@@ -81,5 +88,23 @@ public class EventController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         eventService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /* ===== Helpers ===== */
+
+    private Sort parseSort(String sort, String defaultField) {
+        try {
+            if (sort == null || sort.isBlank()) {
+                return Sort.by(Sort.Direction.ASC, defaultField);
+            }
+            String[] parts = sort.split(",");
+            String field = parts[0].trim();
+            Sort.Direction dir = (parts.length > 1)
+                    ? Sort.Direction.fromString(parts[1].trim())
+                    : Sort.Direction.ASC;
+            return Sort.by(dir, field);
+        } catch (Exception e) {
+            return Sort.by(Sort.Direction.ASC, defaultField);
+        }
     }
 }
