@@ -10,23 +10,25 @@ export const PostStatus = {
     CANCELLED: "CANCELLED",
 };
 
+/** Канал */
+export const Channel = {
+    TELEGRAM: "TELEGRAM",
+    INSTAGRAM: "INSTAGRAM",
+    FACEBOOK: "FACEBOOK",
+};
+
 /** Аудиторія */
 export const Audience = {
     PUBLIC: "PUBLIC",
     SUBSCRIBERS: "SUBSCRIBERS",
 };
 
-/** Канал публікації */
-export const Channel = {
-    TELEGRAM: "TELEGRAM",
-    EMAIL: "EMAIL",
-};
-
 const base = (eventId) => `/events/${encodeURIComponent(eventId)}/posts`;
 
-/** Список постів (фільтри: status, audience, channel) */
-export function listPosts(eventId, { status, audience, channel, short } = {}) {
+export function listPosts(eventId, { page, size, status, audience, channel, short } = {}) {
     const params = new URLSearchParams();
+    if (page !== undefined) params.set("page", String(page));
+    if (size !== undefined) params.set("size", String(size));
     if (status) params.set("status", status);
     if (audience) params.set("audience", audience);
     if (channel) params.set("channel", channel);
@@ -35,32 +37,42 @@ export function listPosts(eventId, { status, audience, channel, short } = {}) {
     return http.get(qs ? `${base(eventId)}?${qs}` : base(eventId));
 }
 
-/** Отримати пост */
+/** КОРОТКИЙ список постів події: GET /api/v1/events/{eventId}/posts/short */
+export async function listPostsShort(eventId) {
+    // Якщо сюди випадково прийде undefined — відразу повернемо порожній масив,
+    // щоб НЕ робити запит у /events/undefined/...
+    if (eventId === undefined || eventId === null) return [];
+    try {
+        const res = await http.get(`${base(eventId)}/short`);
+        // нормалізуємо відповідь до масиву
+        return Array.isArray(res) ? res : (res?.content ?? res?.items ?? res?.data ?? []);
+    } catch (e) {
+        // Якщо бек віддає 404 для подій без постів — теж повертаємо пустий масив
+        if (e?.status === 404) return [];
+        throw e;
+    }
+}
+
 export function getPost(eventId, postId) {
     return http.get(`${base(eventId)}/${encodeURIComponent(postId)}`);
 }
 
-/** Створити пост */
-export function createPost(eventId, payload) {
-    return http.post(base(eventId), payload);
+export function createPost(eventId, body) {
+    return http.post(base(eventId), body);
 }
 
-/** Оновити пост */
-export function updatePost(eventId, postId, payload) {
-    return http.put(`${base(eventId)}/${encodeURIComponent(postId)}`, payload);
+export function updatePost(eventId, postId, body) {
+    return http.put(`${base(eventId)}/${encodeURIComponent(postId)}`, body);
 }
 
-/** Видалити пост */
 export function deletePost(eventId, postId) {
     return http.delete(`${base(eventId)}/${encodeURIComponent(postId)}`);
 }
 
-/** Змінити статус (PATCH /status) */
 export function setPostStatus(eventId, postId, { status, error }) {
     return http.patch(`${base(eventId)}/${encodeURIComponent(postId)}/status`, { status, error });
 }
 
-/** Опублікувати негайно */
 export function publishNow(eventId, postId) {
     return http.post(`${base(eventId)}/${encodeURIComponent(postId)}/publish-now`, {});
 }
