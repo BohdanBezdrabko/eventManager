@@ -29,7 +29,9 @@ function fromDatetimeLocal(localValue) {
 }
 
 export default function EditPostPage() {
-    const { eventId, postId } = useParams();
+    // !!! ВАЖЛИВО: якщо у роуті параметр називається :id — мапимо його на eventId
+    // Якщо ти перейменуєш маршрут на :eventId — можеш повернути { eventId, postId }
+    const { id: eventId, postId } = useParams();
     const navigate = useNavigate();
 
     const [loading, setLoading] = useState(true);
@@ -69,6 +71,15 @@ export default function EditPostPage() {
 
     useEffect(() => {
         let alive = true;
+
+        // Підстраховка: не робимо запити, якщо параметри відсутні
+        if (!eventId || !postId) {
+            setErr("Невірний маршрут: відсутні eventId або postId.");
+            setLoading(false);
+            return () => {
+                alive = false;
+            };
+        }
 
         (async () => {
             try {
@@ -146,15 +157,19 @@ export default function EditPostPage() {
             <div className="toolbar">
                 <h1 className="page-title">Редагувати пост</h1>
                 <div className="toolbar__right">
-                    <Link
-                        className="btn btn-outline-primary"
-                        to={`/events/${eventId}/posts/${postId}`}
-                    >
-                        До деталей
-                    </Link>
-                    <Link className="btn btn-ghost" to={`/events/${eventId}`}>
-                        До івенту
-                    </Link>
+                    {eventId && postId && (
+                        <Link
+                            className="btn btn-outline-primary"
+                            to={`/events/${eventId}/posts/${postId}`}
+                        >
+                            До деталей
+                        </Link>
+                    )}
+                    {eventId && (
+                        <Link className="btn btn-ghost" to={`/events/${eventId}`}>
+                            До івенту
+                        </Link>
+                    )}
                 </div>
             </div>
 
@@ -198,6 +213,8 @@ export default function EditPostPage() {
                                     name="publishAt"
                                     value={form.publishAt}
                                     onChange={onChange}
+                                    // підказка: зробимо обов'язковим лише для SCHEDULED
+                                    required={form.status === PostStatus.SCHEDULED}
                                 />
                             </div>
 
@@ -269,12 +286,14 @@ export default function EditPostPage() {
                             <button disabled={saving} className="btn btn-outline-primary" type="submit">
                                 {saving ? "Збереження…" : "Зберегти"}
                             </button>
-                            <Link
-                                to={`/events/${eventId}/posts/${postId}`}
-                                className="btn btn-ghost"
-                            >
-                                Скасувати
-                            </Link>
+                            {eventId && postId && (
+                                <Link
+                                    to={`/events/${eventId}/posts/${postId}`}
+                                    className="btn btn-ghost"
+                                >
+                                    Скасувати
+                                </Link>
+                            )}
                         </div>
                     </form>
                 )}

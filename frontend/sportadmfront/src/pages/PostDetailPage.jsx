@@ -4,8 +4,8 @@ import {
     deletePost,
     getPost,
     publishNow,
-    setPostStatus,
-    PostStatus,
+    // setPostStatus,          // прибрано
+    // PostStatus,             // прибрано
     Channel,
     Audience,
 } from "@/services/posts.jsx";
@@ -54,17 +54,8 @@ export default function PostDetailPage() {
         }
     };
 
-    const markStatus = async (status) => {
-        try {
-            setBusy(true);
-            await setPostStatus(eventId, postId, status);
-            await load();
-        } catch (e) {
-            setErr(e?.message || "Не вдалося оновити статус.");
-        } finally {
-            setBusy(false);
-        }
-    };
+    // Функція зміни статусу прибрана
+    // const markStatus = async (status) => { ... }
 
     const handleDelete = async () => {
         if (!window.confirm("Видалити пост?")) return;
@@ -116,7 +107,7 @@ export default function PostDetailPage() {
                                 <div className="card__meta">
                                     <span className="chip">{data.channel || Channel.TELEGRAM}</span>
                                     <span className="chip">{data.audience || Audience.PUBLIC}</span>
-                                    <span className="chip chip--ghost">{data.status || PostStatus.DRAFT}</span>
+                                    <span className="chip chip--ghost">{data.status || "DRAFT"}</span>
                                     {data.publishAt && <span className="chip">{fmt(data.publishAt)}</span>}
                                 </div>
                             </div>
@@ -144,12 +135,7 @@ export default function PostDetailPage() {
                         <div className="actions">
                             <button disabled={busy} onClick={doPublishNow} className="btn btn-outline-primary">Опублікувати зараз</button>
                             <div className="spacer" />
-                            <button disabled={busy} onClick={() => markStatus(PostStatus.DRAFT)} className="btn btn-ghost">DRAFT</button>
-                            <button disabled={busy} onClick={() => markStatus(PostStatus.SCHEDULED)} className="btn btn-ghost">SCHEDULED</button>
-                            <button disabled={busy} onClick={() => markStatus(PostStatus.PUBLISHED)} className="btn btn-ghost">PUBLISHED</button>
-                            <button disabled={busy} onClick={() => markStatus(PostStatus.FAILED)} className="btn btn-ghost">FAILED</button>
-                            <button disabled={busy} onClick={() => markStatus(PostStatus.CANCELLED)} className="btn btn-ghost">CANCELLED</button>
-                            <div className="spacer" />
+                            {/* Кнопки зміни статусу видалено */}
                             <button disabled={busy} onClick={handleDelete} className="btn btn-ghost danger">Видалити</button>
                         </div>
                     </>

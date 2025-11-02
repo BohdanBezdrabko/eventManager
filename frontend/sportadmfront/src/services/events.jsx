@@ -24,9 +24,8 @@ export const getAllEvents = async () => {
 /** Створити подію — потрібен для CreateEventPage.jsx */
 export const createEvent = (body) => http.post(base, body);
 
-/** Оновити подію */
-export const updateEvent = (id, body) => http.put(`${base}/${encodeURIComponent(id)}`, body);
-
+export const updateEvent = (id, payload) =>
+    http.put(`/events/${encodeURIComponent(id)}`, payload);
 /** Видалити подію */
 export const deleteEvent = (id) => http.delete(`${base}/${encodeURIComponent(id)}`);
 

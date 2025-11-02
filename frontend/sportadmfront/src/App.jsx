@@ -15,6 +15,7 @@ import DashboardPage from "@/pages/DashboardPage.jsx";
 import EventsPage from "@/pages/EventsPage.jsx";
 import EventDetailPage from "@/pages/EventDetailPage.jsx";
 import CreateEventPage from "@/pages/CreateEventPage.jsx";
+import EditEventPage from "@/pages/EditEventPage.jsx";
 
 import CreatePostPage from "@/pages/CreatePostPage.jsx";
 import EditPostPage from "@/pages/EditPostPage.jsx";
@@ -41,6 +42,7 @@ export default function App() {
                             <Route path="/events" element={<EventsPage />} />
                             <Route path="/events/create" element={<CreateEventPage />} />
                             <Route path="/events/:id" element={<EventDetailPage />} />
+                            <Route path="/events/:id/edit" element={<EditEventPage />} />
 
                             {/* Пости по івенту */}
                             <Route path="/events/:id/posts/create" element={<CreatePostPage />} />

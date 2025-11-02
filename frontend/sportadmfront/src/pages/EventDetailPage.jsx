@@ -153,6 +153,9 @@ export default function EventDetailPage() {
             <div className="toolbar">
                 <h1 className="page-title">{ev?.name || "Подія"}</h1>
                 <div className="toolbar__right">
+                    <Link className="btn btn-outline-primary" to={`/events/${id}/edit`}>
+                        Змінити подію
+                    </Link>
                     <Link className="btn btn-outline-primary" to={`/events/${id}/posts/create`}>
                         + Новий пост
                     </Link>
