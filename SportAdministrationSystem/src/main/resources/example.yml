@@ -1,0 +1,71 @@
+spring:
+  profiles:
+    active: dev
+
+  application:
+    name: ExampleApplication
+
+  jackson:
+    serialization:
+      WRITE_DATES_AS_TIMESTAMPS: false
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/example_db
+    username: example_user
+    password: example_password
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  docker:
+    compose:
+      enabled: true
+
+server:
+  port: 8080
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - http://localhost:4200
+
+jwt:
+  # Example secret key – replace with a strong, random value in real use
+  secret: CHANGE_ME_TO_A_VERY_LONG_RANDOM_SECRET_KEY_1234567890
+  # names expected by code
+  access-exp-min: 30        # access token lifetime in minutes
+  refresh-exp-days: 14      # refresh token lifetime in days
+  access-ttl-minutes: 30
+  refresh-ttl-days: 14
+
+telegram:
+  bot:
+    # Example token – replace with real bot token from BotFather
+    token: 1234567890:AAExampleTelegramBotTokenReplaceMe
+    username: ExampleEventBot
+    chat-id: -1001234567890
+    defaultChatId: -1001234567890
+
+dispatcher:
+  batch-size: 100
+  retry-batch-size: 250
+  max-attempts: 3
+  interval-ms: 30000   # 30 seconds
+
+logging:
+  level:
+    org.springframework.security: INFO
+    com.example.exampleapplication: DEBUG
