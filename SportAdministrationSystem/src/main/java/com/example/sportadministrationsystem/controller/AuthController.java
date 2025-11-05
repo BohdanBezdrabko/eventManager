@@ -21,7 +21,20 @@ import org.springframework.web.bind.annotation.*;
 import java.security.Principal;
 import java.util.Set;
 import java.util.stream.Collectors;
-
+/**
+ * REST controller responsible for authentication and user registration.
+ *
+ * <p>Exposes endpoints under {@code /api/v1/auth} for:
+ * <ul>
+ *   <li>Registering new users</li>
+ *   <li>Logging in and obtaining JWT tokens</li>
+ *   <li>Inspecting the currently authenticated user</li>
+ * </ul>
+ *
+ * <p>This controller delegates persistence to {@code UserRepository}, password encoding to
+ * {@code PasswordEncoder}, authentication to {@code AuthenticationManager} and JWT issuance to
+ * {@code JwtTokenProvider}.
+ */
 @RequiredArgsConstructor
 @RestController
 @RequestMapping("/api/v1/auth")

@@ -28,6 +28,51 @@ function fromDatetimeLocal(localValue) {
     return d.toISOString();
 }
 
+/**
+ * Дозволені статуси для поста, виходячи з поточного статусу.
+ * Включає "поточний" статус, щоб можна було залишити як є.
+ *
+ * Дозволені переходи:
+ * DRAFT     -> SCHEDULED | PUBLISHED | CANCELLED
+ * SCHEDULED -> PUBLISHED | FAILED    | CANCELLED
+ * FAILED    -> SCHEDULED | CANCELLED
+ * PUBLISHED -> CANCELLED
+ * CANCELLED -> (заборонено)
+ */
+function getAllowedStatuses(currentStatus) {
+    switch (currentStatus) {
+        case PostStatus.DRAFT:
+            return [
+                PostStatus.DRAFT,
+                PostStatus.SCHEDULED,
+                PostStatus.PUBLISHED,
+                PostStatus.CANCELLED,
+            ];
+        case PostStatus.SCHEDULED:
+            return [
+                PostStatus.SCHEDULED,
+                PostStatus.PUBLISHED,
+                PostStatus.FAILED,
+                PostStatus.CANCELLED,
+            ];
+        case PostStatus.FAILED:
+            return [
+                PostStatus.FAILED,
+                PostStatus.SCHEDULED,
+                PostStatus.CANCELLED,
+            ];
+        case PostStatus.PUBLISHED:
+            return [
+                PostStatus.PUBLISHED,
+                PostStatus.CANCELLED,
+            ];
+        case PostStatus.CANCELLED:
+        default:
+            // Скасований пост більше не можна перевести в інший статус
+            return [PostStatus.CANCELLED];
+    }
+}
+
 export default function EditPostPage() {
     // !!! ВАЖЛИВО: якщо у роуті параметр називається :id — мапимо його на eventId
     // Якщо ти перейменуєш маршрут на :eventId — можеш повернути { eventId, postId }
@@ -64,10 +109,12 @@ export default function EditPostPage() {
         []
     );
 
-    const statusOptions = useMemo(
-        () => Object.values(PostStatus).map((s) => ({ value: s, label: s })),
-        []
-    );
+    // Статуси в селекті — тільки дозволені для поточного оригінального статусу
+    const statusOptions = useMemo(() => {
+        const baseStatus = originalStatus || PostStatus.DRAFT;
+        const allowed = getAllowedStatuses(baseStatus);
+        return allowed.map((s) => ({ value: s, label: s }));
+    }, [originalStatus]);
 
     useEffect(() => {
         let alive = true;
@@ -123,6 +170,14 @@ export default function EditPostPage() {
         setErr("");
 
         try {
+            // Валідація переходу статусу згідно дозволених переходів
+            const allowedForThisPost = getAllowedStatuses(originalStatus);
+            if (!allowedForThisPost.includes(form.status)) {
+                throw new Error(
+                    `Недопустимий перехід статусу з ${originalStatus} в ${form.status}.`
+                );
+            }
+
             // Валідація для запланованих постів
             if (form.status === PostStatus.SCHEDULED && !form.publishAt) {
                 throw new Error("Для статусу SCHEDULED потрібно вказати дату публікації.");

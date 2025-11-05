@@ -279,7 +279,6 @@ export default function EventDetailPage() {
                                                     <span className="chip chip--ghost">{p.status}</span>
                                                     <span className="chip chip--ghost">{p.audience}</span>
                                                     <span className="chip chip--ghost">{p.channel}</span>
-                                                    {p.generated && <span className="chip">AI</span>}
                                                 </div>
                                             </div>
                                             <div className="card__actions">

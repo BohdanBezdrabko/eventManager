@@ -1,5 +1,6 @@
 package com.example.sportadministrationsystem.service;
 
+import com.example.sportadministrationsystem.exception.MissingTelegramChatIdException;
 import com.example.sportadministrationsystem.model.Audience;
 import com.example.sportadministrationsystem.model.Channel;
 import com.example.sportadministrationsystem.model.Event;
@@ -52,16 +53,29 @@ public class PostDispatchService {
             post.setStatus(PostStatus.PUBLISHED);
             post.setError(null);
             log.info("Post #{} delivered to {} target(s).", post.getId(), sentCount);
+
+        } catch (MissingTelegramChatIdException e) {
+            post.setStatus(PostStatus.FAILED);
+            // фіксований код помилки для фронта / інших сервісів
+            post.setError("NO_TELEGRAM_CHAT_ID");
+            log.warn("Dispatch failed for post #{}: no Telegram chatId", post.getId(), e);
+            throw e;
+
         } catch (Exception e) {
             post.setStatus(PostStatus.FAILED);
             post.setError(shorten(e.getMessage(), 500));
             log.error("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
+            throw e;
+
         } finally {
             postRepository.save(post);
         }
     }
 
-    private int dispatchPublic(Post p) throws TelegramApiException {
+    /**
+     * Відправка публічного поста в канал/чат.
+     */
+    private int dispatchPublic(Post p) {
         String chatId = resolveTargetChatId(p);
         String text = buildPostText(p);
 
@@ -72,19 +86,27 @@ public class PostDispatchService {
 
         String linkUrl = resolveEventLinkUrl(e);
 
-// якщо це перший вже опублікований пост по івенту — робимо "живий" callback;
-// якщо ні — ставимо deep-link у бот для персонального відображення статусу
+        // якщо це перший вже опублікований пост по івенту — робимо "живий" callback;
+        // якщо ні — ставимо deep-link у бот для персонального відображення статусу
         long publishedCount = postRepository.countByEvent_IdAndStatus(e.getId(), PostStatus.PUBLISHED);
         InlineKeyboardMarkup kb = (publishedCount == 0)
                 ? telegramService.eventKeyboard(e.getId(), false, linkUrl)                 // 1-й пост
                 : telegramService.eventKeyboardPublicFollowup(e.getId(), linkUrl);         // 2-й і далі
 
-        telegramService.sendMessage(chatId, text, kb);
-        return 1;
+        try {
+            telegramService.sendMessage(chatId, text, kb);
+        } catch (TelegramApiException e1) {
+            // загортаємо в RuntimeException, щоб не тягнути checked exception нагору
+            throw new RuntimeException("Telegram API error while sending PUBLIC post: " + e1.getMessage(), e1);
+        }
 
+        return 1;
     }
 
-    private int dispatchSubscribers(Post p) throws TelegramApiException {
+    /**
+     * Відправка поста підписникам івенту (direct повідомлення).
+     */
+    private int dispatchSubscribers(Post p) {
         Event e = p.getEvent();
         if (e == null || e.getId() == null) return 0;
 
@@ -97,16 +119,25 @@ public class PostDispatchService {
 
         int sent = 0;
         for (Long chatId : chatIds) {
-            telegramService.sendMessage(String.valueOf(chatId), text, kb);
-            sent++;
+            try {
+                telegramService.sendMessage(String.valueOf(chatId), text, kb);
+                sent++;
+            } catch (TelegramApiException e1) {
+                // логнемо, але дамо іншим отримати свій месседж
+                log.error("Telegram API error while sending to subscriber chatId={}: {}", chatId, e1.getMessage(), e1);
+            }
         }
         return sent;
     }
 
     private String resolveTargetChatId(Post p) {
-        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) return p.getTelegramChatId();
-        if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) return defaultChannelChatId;
-        throw new IllegalStateException("No Telegram chatId for PUBLIC post");
+        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) {
+            return p.getTelegramChatId();
+        }
+        if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) {
+            return defaultChannelChatId;
+        }
+        throw new MissingTelegramChatIdException("No Telegram chatId for PUBLIC post");
     }
 
     private String buildPostText(Post p) {

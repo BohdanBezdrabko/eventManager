@@ -35,4 +35,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiError.of(500, "Internal Server Error", ex.getMessage(), req.getRequestURI()));
     }
+    @ExceptionHandler(MissingTelegramChatIdException.class)
+    public ResponseEntity<ApiError> handleMissingChatId(MissingTelegramChatIdException ex,
+                                                        HttpServletRequest req) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiError.of(
+                        400,
+                        "Missing Telegram chatId",
+                        "NO_TELEGRAM_CHAT_ID",      // тут ти можеш покласти код, а message – у detail, як захочеш
+                        req.getRequestURI()
+                ));
+    }
 }
