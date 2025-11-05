@@ -1,4 +1,3 @@
-// File: src/main/java/com/example/sportadministrationsystem/controller/EventPostsController.java
 package com.example.sportadministrationsystem.controller;
 
 import com.example.sportadministrationsystem.dto.EventTreeResponse;

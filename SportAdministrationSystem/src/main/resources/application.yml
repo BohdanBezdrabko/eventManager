@@ -42,12 +42,11 @@ app:
       - http://localhost:5175
 
 jwt:
-  # DEV-секрет (достатньо довгий для HS256)
+  # DEV-секрет
   secret: Qb2P8d9eS3nZk7cA1rT5uV8xY2mN4pL6wH0J3K9R2F5M8C1D7E4G6H8J0L2Q4S6
   # назви, які очікує код
   access-exp-min: 60
   refresh-exp-days: 7
-  # на випадок, якщо десь у коді інші ключі — лишаю дублікати (не завадять)
   access-ttl-minutes: 60
   refresh-ttl-days: 7
 
@@ -55,9 +54,8 @@ telegram:
   bot:
     token: 8470789325:AAFEfsjKlPbOkBWPVXfN99o9ahumV9_vWHg
     username: EventKPIbot
-    # додав обидва варіанти ключа, щоб точно співпало з биндингом
-    chat-id: -4894126161
-    defaultChatId: -4894126161
+    chat-id: -1003137847951
+    defaultChatId: -1003137847951
 
 dispatcher:
   batch-size: 50
