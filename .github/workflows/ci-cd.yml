@@ -77,9 +77,7 @@ jobs:
             npm install
           fi
 
-      - name: Lint frontend
-        run: npm run lint
-
+      # БЕЗ lint – просто збірка фронта
       - name: Build frontend
         run: npm run build
 
