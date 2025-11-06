@@ -11,7 +11,7 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 
 /**
  * Реєструє наш TelegramService як LongPolling-бота.
- * Тут НІДЕ не створюється AbsSender, тож циклу немає.
+ * Вимикається в тестах через telegram.enabled=false.
  */
 @Configuration
 @RequiredArgsConstructor
