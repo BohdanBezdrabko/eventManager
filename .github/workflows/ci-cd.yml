@@ -11,24 +11,13 @@ jobs:
     name: Backend (Spring Boot)
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: testdb
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
     defaults:
       run:
         working-directory: SportAdministrationSystem
+
+    env:
+      # Гарантовано використовуємо тестовий профіль
+      SPRING_PROFILES_ACTIVE: test
 
     steps:
       - name: Checkout repository
@@ -44,19 +33,11 @@ jobs:
       - name: Make Maven wrapper executable
         run: chmod +x mvnw
 
-      - name: Wait for PostgreSQL
-        run: |
-          echo "Waiting for PostgreSQL to start..."
-          until pg_isready -h localhost -p 5432 -U test; do sleep 1; done
-
+      # Проганяємо тести в профілі test (H2, без Flyway, без Telegram)
       - name: Run backend tests
-        env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/testdb
-          SPRING_DATASOURCE_USERNAME: test
-          SPRING_DATASOURCE_PASSWORD: test
-          SPRING_FLYWAY_ENABLED: true
         run: ./mvnw -B clean test
 
+      # На main збираємо jar для деплою
       - name: Build backend jar (for delivery)
         if: github.ref == 'refs/heads/main'
         run: ./mvnw -B package -DskipTests
