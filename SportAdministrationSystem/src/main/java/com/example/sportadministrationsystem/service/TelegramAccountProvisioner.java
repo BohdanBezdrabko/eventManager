@@ -6,26 +6,33 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * Створює/оновлює запис UserTelegram та синхронізує tg_chat_id,
+ * щоб кнопки/переходи з різних контекстів працювали стабільно.
+ */
 @Component
 @RequiredArgsConstructor
 public class TelegramAccountProvisioner {
 
     private final UserTelegramRepository userTelegramRepository;
 
-    /**
-     * Забезпечує існування запису в user_telegram і повертає його.
-     * НІЯКИХ створень записів у таблиці users.
-     */
     @Transactional
     public UserTelegram ensure(org.telegram.telegrambots.meta.api.objects.User tg) {
         Long tgUserId = tg.getId();
-        Long chatIdAsPrivate = tg.getId(); // для приватних чатів під час натискання кнопки
+        Long privateChatId = tg.getId(); // у приватному чаті chatId == userId
 
         return userTelegramRepository.findByTgUserId(tgUserId)
+                .map(existing -> {
+                    // оновлюємо chatId, якщо змінився або був null
+                    if (existing.getTgChatId() == null || !existing.getTgChatId().equals(privateChatId)) {
+                        existing.setTgChatId(privateChatId);
+                    }
+                    return existing;
+                })
                 .orElseGet(() -> userTelegramRepository.save(
                         UserTelegram.builder()
                                 .tgUserId(tgUserId)
-                                .tgChatId(chatIdAsPrivate)
+                                .tgChatId(privateChatId)
                                 .build()
                 ));
     }

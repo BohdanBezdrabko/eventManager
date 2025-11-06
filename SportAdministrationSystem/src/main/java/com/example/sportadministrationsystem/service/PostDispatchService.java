@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -33,8 +34,9 @@ public class PostDispatchService {
 
     /**
      * Відправка одного поста, викликається планувальником або вручну.
+     * Ізольована транзакція: будь-яка помилка НЕ зламає зовнішню транзакцію.
      */
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void dispatch(Post post) {
         try {
             if (post.getChannel() != Channel.TELEGRAM) {
@@ -59,13 +61,13 @@ public class PostDispatchService {
             // фіксований код помилки для фронта / інших сервісів
             post.setError("NO_TELEGRAM_CHAT_ID");
             log.warn("Dispatch failed for post #{}: no Telegram chatId", post.getId(), e);
-            throw e;
+            // НЕ прокидуємо далі — щоб не ставити транзакцію зовнішнього рівня у rollback-only
 
         } catch (Exception e) {
             post.setStatus(PostStatus.FAILED);
             post.setError(shorten(e.getMessage(), 500));
             log.error("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
-            throw e;
+            // НЕ прокидуємо далі — щоб статус/помилка гарантовано закомітились
 
         } finally {
             postRepository.save(post);

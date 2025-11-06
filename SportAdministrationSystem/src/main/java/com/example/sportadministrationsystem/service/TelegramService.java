@@ -1,7 +1,6 @@
 package com.example.sportadministrationsystem.service;
 
 import com.example.sportadministrationsystem.model.Event;
-import com.example.sportadministrationsystem.model.EventSubscription;
 import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.model.UserTelegram;
 import com.example.sportadministrationsystem.repository.EventRepository;
@@ -10,13 +9,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
-import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
@@ -24,12 +20,18 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class TelegramService extends TelegramLongPollingBot {
+
+    private final EventRepository events;
+    private final EventSubscriptionRepository subs;
+    private final TelegramAccountProvisioner provisioner;
+
+    // Транзакційний сервіс підписок (виносить write-логіку, щоб не було No EntityManager ...)
+    private final EventSubscriptionService eventSubscriptionService;
 
     @Value("${telegram.bot.token}")
     private String botToken;
@@ -37,36 +39,35 @@ public class TelegramService extends TelegramLongPollingBot {
     @Value("${telegram.bot.username}")
     private String botUsername;
 
-    private final EventRepository events;
-    private final EventSubscriptionRepository subs;
-    private final TelegramAccountProvisioner provisioner;
+    /* ============================ ПУБЛІЧНИЙ API для інших сервісів ============================ */
 
-    /* ===================== Public API ===================== */
-
-    /** Відправка повідомлення із (необов’язковою) інлайн-клавіатурою. */
-    public Message sendMessage(String chatId, String text, InlineKeyboardMarkup keyboard) throws TelegramApiException {
-        SendMessage sm = SendMessage.builder()
-                .chatId(chatId)
-                .text(text == null ? "" : text)
-                .replyMarkup(keyboard)
-                .build();
-        return execute(sm);
+    /**
+     * Публічний метод, який можна викликати з інших сервісів (PostDispatchService тощо).
+     * Кидає TelegramApiException для коректного хендлінгу на рівні викликача.
+     */
+    public void sendMessage(String chatId, String text, InlineKeyboardMarkup kb) throws TelegramApiException {
+        SendMessage msg = new SendMessage(chatId, text);
+        if (kb != null) msg.setReplyMarkup(kb);
+        execute(msg);
     }
 
     /**
-     * Клавіатура під ПЕРШИМ публічним постом: миттєва підписка/відписка через callback.
-     * Якщо є URL івента — додається друга кнопка «Посилання».
+     * Клавіатура для карточки івенту з можливістю безпосередньо підписатися/відписатися (callback_data).
+     * Використовується коли очікуємо callback від користувача (наприклад, при першому пості чи в приваті).
      */
     public InlineKeyboardMarkup eventKeyboard(long eventId, boolean subscribed, String linkUrl) {
-        InlineKeyboardButton subBtn = subscribed
-                ? InlineKeyboardButton.builder().text("Відписатися").callbackData("EVT_UNSUB:" + eventId).build()
-                : InlineKeyboardButton.builder().text("Зареєструватися").callbackData("EVT_SUB:" + eventId).build();
-
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(List.of(subBtn));
+
+        InlineKeyboardButton toggle = new InlineKeyboardButton();
+        toggle.setText(subscribed ? "Відписатися" : "Підписатися");
+        toggle.setCallbackData(subscribed ? ("EVT_UNSUB:" + eventId) : ("EVT_SUB:" + eventId));
+        rows.add(List.of(toggle));
 
         if (linkUrl != null && !linkUrl.isBlank()) {
-            rows.add(List.of(InlineKeyboardButton.builder().text("Посилання").url(linkUrl).build()));
+            InlineKeyboardButton link = new InlineKeyboardButton();
+            link.setText("Посилання");
+            link.setUrl(linkUrl);
+            rows.add(List.of(link));
         }
 
         InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
@@ -75,21 +76,23 @@ public class TelegramService extends TelegramLongPollingBot {
     }
 
     /**
-     * Клавіатура для ДРУГОГО+ публічного поста: deep-link у чат з ботом, де показується персональний стан.
-     * Якщо є URL івента — додається друга кнопка «Посилання».
+     * Клавіатура для наступних PUBLIC-постів у канал: у каналах callback-кнопки часто не те, що нам треба.
+     * Тому даємо URL-кнопку з deep-link у бота `/start <eventId>`, щоб користувач відкрив бота
+     * і вже там натиснув підписку. Додаємо опційне посилання на івент.
      */
     public InlineKeyboardMarkup eventKeyboardPublicFollowup(long eventId, String linkUrl) {
-        String deepLink = "https://t.me/" + botUsername + "?start=event-" + eventId;
-        InlineKeyboardButton manageBtn = InlineKeyboardButton.builder()
-                .text("Керувати підпискою")
-                .url(deepLink)
-                .build();
-
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(List.of(manageBtn));
+
+        InlineKeyboardButton manage = new InlineKeyboardButton();
+        manage.setText("Керувати підпискою");
+        manage.setUrl(buildStartDeepLink(eventId));
+        rows.add(List.of(manage));
 
         if (linkUrl != null && !linkUrl.isBlank()) {
-            rows.add(List.of(InlineKeyboardButton.builder().text("Посилання").url(linkUrl).build()));
+            InlineKeyboardButton link = new InlineKeyboardButton();
+            link.setText("Посилання");
+            link.setUrl(linkUrl);
+            rows.add(List.of(link));
         }
 
         InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
@@ -97,38 +100,58 @@ public class TelegramService extends TelegramLongPollingBot {
         return kb;
     }
 
-    /* ============================ LongPolling ============================ */
+    /* ============================ Bot lifecycle ============================ */
 
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            if (update == null) return;
-
-            if (update.hasCallbackQuery()) {
-                handleCallback(update.getCallbackQuery());
-                return;
-            }
-
             if (update.hasMessage() && update.getMessage().hasText()) {
-                String text = update.getMessage().getText().trim();
+                String txt = update.getMessage().getText();
+                if ("/start".equalsIgnoreCase(txt) || txt.startsWith("/start ")) {
+                    long chatId = update.getMessage().getChatId();
 
-                if (text.equalsIgnoreCase("/start")) {
-                    sendMessage(String.valueOf(update.getMessage().getChatId()),
-                            "Вітаю! Натискайте кнопки під постами, щоб керувати підпискою на нагадування.", null);
-                    return;
-                }
-
-                // Deep-link: /start event-<id>
-                if (text.startsWith("/start ")) {
-                    String payload = text.substring(7).trim();
-                    if (payload.startsWith("event-")) {
-                        String idStr = payload.substring("event-".length());
+                    if (txt.startsWith("/start ") && txt.length() > 7) {
+                        String idStr = txt.substring(7).trim();
                         try {
                             long eventId = Long.parseLong(idStr);
-                            handleStartWithEvent(update.getMessage().getChatId(), eventId, update);
+                            handleStartWithEvent(chatId, eventId, update);
                             return;
                         } catch (NumberFormatException ignore) { /* no-op */ }
                     }
+
+                    // Базове привітання
+                    safeSend(String.valueOf(chatId),
+                            "Привіт! Надішліть /start <eventId>, щоб керувати підпискою на івент.",
+                            null);
+                }
+            } else if (update.hasCallbackQuery()) {
+                CallbackQuery cb = update.getCallbackQuery();
+                String data = cb.getData();
+                long chatId = cb.getMessage().getChatId();
+
+                // Синхронізація акаунта користувача
+                UserTelegram tgAcc = provisioner.ensure(cb.getFrom());
+
+                if (data != null && data.startsWith("EVT_SUB:")) {
+                    long eventId = parseId(data, "EVT_SUB:");
+                    boolean nowActive = eventSubscriptionService.toggleSubscription(eventId, tgAcc, true);
+
+                    Event event = events.findById(eventId).orElse(null);
+                    InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
+                    safeSend(String.valueOf(chatId), "Підписка активована ✅", kb);
+                    ack(cb, "Підписка активована");
+
+                } else if (data != null && data.startsWith("EVT_UNSUB:")) {
+                    long eventId = parseId(data, "EVT_UNSUB:");
+                    boolean nowActive = eventSubscriptionService.toggleSubscription(eventId, tgAcc, false);
+
+                    Event event = events.findById(eventId).orElse(null);
+                    InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
+                    safeSend(String.valueOf(chatId), "Підписка вимкнена ❌", kb);
+                    ack(cb, "Відписка виконана");
+
+                } else {
+                    ack(cb, "Невідома дія");
                 }
             }
         } catch (Exception e) {
@@ -136,70 +159,32 @@ public class TelegramService extends TelegramLongPollingBot {
         }
     }
 
-    private void handleStartWithEvent(long chatId, long eventId, Update update) throws TelegramApiException {
-        // створюємо/знаходимо Telegram-акаунт користувача (ВАЖЛИВО: без chatId у сигнатурі)
-        UserTelegram tgAcc = provisioner.ensure(update.getMessage().getFrom());
+    /* ============================ Helpers ============================ */
 
+    private void safeSend(String chatId, String text, InlineKeyboardMarkup kb) {
+        try {
+            sendMessage(chatId, text, kb);
+        } catch (TelegramApiException e) {
+            log.error("sendMessage failed: {}", e.getMessage(), e);
+        }
+    }
+
+    private void handleStartWithEvent(long chatId, long eventId, Update update) {
+        UserTelegram tgAcc = provisioner.ensure(update.getMessage().getFrom());
         Event event = events.findById(eventId).orElse(null);
         if (event == null) {
-            sendMessage(String.valueOf(chatId), "Івент не знайдено.", null);
+            safeSend(String.valueOf(chatId), "Івент не знайдено.", null);
             return;
         }
-
         boolean isSubscribed = subs.existsByEventAndUserTelegramAndMessengerAndActiveIsTrue(
                 event, tgAcc, Messenger.TELEGRAM);
 
         String link = resolveEventLinkUrl(event);
         InlineKeyboardMarkup kb = eventKeyboard(eventId, isSubscribed, link);
-
         String text = isSubscribed
-                ? "Ви вже підписані на нагадування цього івента. Можете відписатися."
-                : "Ви не підписані на цей івент. Можете підписатися.";
-        sendMessage(String.valueOf(chatId), text, kb);
-    }
-
-    @Transactional
-    protected void handleCallback(CallbackQuery cb) throws TelegramApiException {
-        String data = cb.getData();
-        long chatId = cb.getMessage().getChatId();
-        Integer messageId = cb.getMessage() != null ? cb.getMessage().getMessageId() : null;
-
-        // забезпечуємо існування Telegram-акаунта (ВАЖЛИВО: без chatId у сигнатурі)
-        UserTelegram tgAcc = provisioner.ensure(cb.getFrom());
-
-        if (data != null && data.startsWith("EVT_SUB:")) {
-            long eventId = parseId(data, "EVT_SUB:");
-            toggleSubscription(eventId, tgAcc, true);
-
-            String link = resolveEventLinkUrl(events.findById(eventId).orElse(null));
-            InlineKeyboardMarkup kb = eventKeyboard(eventId, true, link);
-            updateOriginalMessageKeyboard(chatId, messageId, kb);
-            ack(cb, "Ви підписані на нагадування про івент.");
-            return;
-        }
-
-        if (data != null && data.startsWith("EVT_UNSUB:")) {
-            long eventId = parseId(data, "EVT_UNSUB:");
-            toggleSubscription(eventId, tgAcc, false);
-
-            String link = resolveEventLinkUrl(events.findById(eventId).orElse(null));
-            InlineKeyboardMarkup kb = eventKeyboard(eventId, false, link);
-            updateOriginalMessageKeyboard(chatId, messageId, kb);
-            ack(cb, "Ви відписалися від нагадувань.");
-            return;
-        }
-
-        ack(cb, "Оновлено");
-    }
-
-    private void updateOriginalMessageKeyboard(long chatId, Integer messageId, InlineKeyboardMarkup kb) throws TelegramApiException {
-        if (messageId == null) return;
-        EditMessageReplyMarkup edit = EditMessageReplyMarkup.builder()
-                .chatId(String.valueOf(chatId))
-                .messageId(messageId)
-                .replyMarkup(kb)
-                .build();
-        execute(edit);
+                ? "Ви вже підписані на нагадування про цей івент."
+                : "Ви не підписані на цей івент. Натисніть кнопку нижче, щоб підписатися.";
+        safeSend(String.valueOf(chatId), text, kb);
     }
 
     private void ack(CallbackQuery cb, String text) throws TelegramApiException {
@@ -211,48 +196,26 @@ public class TelegramService extends TelegramLongPollingBot {
         execute(ack);
     }
 
-    @Transactional
-    protected void toggleSubscription(long eventId, UserTelegram tgAcc, boolean desired) {
-        Event event = events.findById(eventId)
-                .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
-
-        Optional<EventSubscription> found =
-                subs.findByEventAndUserTelegramAndMessenger(event, tgAcc, Messenger.TELEGRAM);
-
-        if (desired) {
-            if (found.isEmpty()) {
-                EventSubscription es = new EventSubscription();
-                es.setEvent(event);
-                es.setUserTelegram(tgAcc);
-                es.setMessenger(Messenger.TELEGRAM);
-                es.setActive(true);
-                subs.save(es);
-            } else if (!found.get().isActive()) { // ВАЖЛИВО: boolean ґеттер — isActive()
-                found.get().setActive(true);
-            }
-        } else {
-            found.ifPresent(es -> es.setActive(false));
-        }
+    private String buildStartDeepLink(long eventId) {
+        // напр.: https://t.me/<botUsername>?start=<eventId>
+        return "https://t.me/" + botUsername + "?start=" + eventId;
     }
 
-    /** Повертає URL для кнопки «Посилання»: спочатку Event.url, інакше Event.coverUrl. */
+    /** URL для кнопки "Посилання": спочатку Event.getUrl(), якщо нема — Event.getCoverUrl(). */
     String resolveEventLinkUrl(Event e) {
         if (e == null) return null;
 
-        // Спершу пробуємо getUrl()
         try {
-            var m = e.getClass().getMethod("getUrl");
-            Object v = m.invoke(e);
-            if (v instanceof String s && s != null && !s.isBlank()) return s.trim();
-        } catch (NoSuchMethodException ignore) { /* поля url може не бути — ок */ }
-        catch (Exception ex) { log.warn("resolveEventLinkUrl via getUrl failed: {}", ex.toString()); }
+            var m1 = e.getClass().getMethod("getUrl");
+            Object v1 = m1.invoke(e);
+            if (v1 instanceof String s1 && s1 != null && !s1.isBlank()) return s1.trim();
+        } catch (Exception ex) { /* ок, пробуємо coverUrl */ }
 
-        // fallback — coverUrl
         try {
             var m2 = e.getClass().getMethod("getCoverUrl");
             Object v2 = m2.invoke(e);
             if (v2 instanceof String s2 && s2 != null && !s2.isBlank()) return s2.trim();
-        } catch (Exception ex) { log.warn("resolveEventLinkUrl via getCoverUrl failed: {}", ex.toString()); }
+        } catch (Exception ex) { /* no-op */ }
 
         return null;
     }

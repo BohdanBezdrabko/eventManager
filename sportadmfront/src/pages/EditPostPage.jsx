@@ -99,7 +99,7 @@ export default function EditPostPage() {
     const audienceOptions = useMemo(
         () => [
             { value: Audience.PUBLIC, label: "Публічна" },
-            { value: Audience.PRIVATE, label: "Приватна" },
+            { value: Audience.SUBSCRIBERS, label: "Приватна" },
         ],
         []
     );
@@ -185,10 +185,13 @@ export default function EditPostPage() {
 
             // 1) Оновлюємо метадані поста БЕЗ поля status
             const payload = {
-                ...form,
+                title: form.title,
+                body: form.body,
                 publishAt: fromDatetimeLocal(form.publishAt),
+                audience: form.audience,
+                channel: form.channel,
+                telegramChatId: form.telegramChatId,
             };
-            delete payload.status; // статус міняємо окремим ендпоінтом
 
             await updatePost(eventId, postId, payload);
 
