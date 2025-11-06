@@ -44,20 +44,21 @@ public interface EventSubscriptionRepository extends JpaRepository<EventSubscrip
     List<EventSubscription> findAllByEvent_IdAndActiveIsTrue(Long eventId);
 
     /**
-     * Повертає кількість активних підписників ІЗ ЗАПОВНЕНИМ chatId (tg_chat_id is not null)
+     * Повертає кількість активних підписників з НЕПУСТИМ tg_chat_id
      * для конкретного івенту та месенджера.
      *
-     * Використано nativeQuery для точного контролю join і фільтрів.
+     * ВАЖЛИВО: переведено на JPQL, щоб коректно біндити Enum Messenger і уникнути 500.
+     * Додаємо DISTINCT по tgChatId, щоб не рахувати дублікати.
      */
-    @Query(value = """
-        select count(*) 
-          from event_subscriptions es
-          join user_telegram ut on ut.id = es.user_telegram_id
-         where es.event_id = :eventId
+    @Query("""
+        select count(distinct ut.tgChatId)
+          from EventSubscription es
+          join es.userTelegram ut
+         where es.event.id = :eventId
            and es.messenger = :messenger
            and es.active = true
-           and ut.tg_chat_id is not null
-        """, nativeQuery = true)
+           and ut.tgChatId is not null
+        """)
     long countActiveByEventAndMessengerWithChat(
             @Param("eventId") Long eventId,
             @Param("messenger") Messenger messenger

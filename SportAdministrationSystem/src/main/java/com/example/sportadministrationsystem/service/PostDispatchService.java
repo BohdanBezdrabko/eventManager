@@ -33,8 +33,7 @@ public class PostDispatchService {
     private String defaultChannelChatId;
 
     /**
-     * Відправка одного поста, викликається планувальником або вручну.
-     * Ізольована транзакція: будь-яка помилка НЕ зламає зовнішню транзакцію.
+     * Відправка одного поста (в новій транзакції, щоб статус поста завжди зберігався).
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void dispatch(Post post) {
@@ -43,14 +42,11 @@ public class PostDispatchService {
                 throw new IllegalStateException("Unsupported channel: " + post.getChannel());
             }
 
-            int sentCount;
-            if (post.getAudience() == Audience.PUBLIC) {
-                sentCount = dispatchPublic(post);
-            } else if (post.getAudience() == Audience.SUBSCRIBERS) {
-                sentCount = dispatchSubscribers(post);
-            } else {
-                throw new IllegalStateException("Unsupported audience: " + post.getAudience());
-            }
+            int sentCount = switch (post.getAudience()) {
+                case PUBLIC -> dispatchPublic(post);
+                case SUBSCRIBERS -> dispatchSubscribers(post);
+                default -> throw new IllegalStateException("Unsupported audience: " + post.getAudience());
+            };
 
             post.setStatus(PostStatus.PUBLISHED);
             post.setError(null);
@@ -58,16 +54,13 @@ public class PostDispatchService {
 
         } catch (MissingTelegramChatIdException e) {
             post.setStatus(PostStatus.FAILED);
-            // фіксований код помилки для фронта / інших сервісів
             post.setError("NO_TELEGRAM_CHAT_ID");
             log.warn("Dispatch failed for post #{}: no Telegram chatId", post.getId(), e);
-            // НЕ прокидуємо далі — щоб не ставити транзакцію зовнішнього рівня у rollback-only
 
         } catch (Exception e) {
             post.setStatus(PostStatus.FAILED);
             post.setError(shorten(e.getMessage(), 500));
             log.error("Dispatch failed for post #{}: {}", post.getId(), e.getMessage(), e);
-            // НЕ прокидуємо далі — щоб статус/помилка гарантовано закомітились
 
         } finally {
             postRepository.save(post);
@@ -75,7 +68,10 @@ public class PostDispatchService {
     }
 
     /**
-     * Відправка публічного поста в канал/чат.
+     * Публічний пост у канал:
+     * - для першого поста івенту показуємо URL-кнопку «Підписатися» (deep-link у бота);
+     * - для наступних постів — URL-кнопку «Керувати підпискою».
+     * Жодних callback-кнопок у каналі (щоб бот НЕ відповідав у каналі).
      */
     private int dispatchPublic(Post p) {
         String chatId = resolveTargetChatId(p);
@@ -87,18 +83,15 @@ public class PostDispatchService {
         }
 
         String linkUrl = resolveEventLinkUrl(e);
-
-        // якщо це перший вже опублікований пост по івенту — робимо "живий" callback;
-        // якщо ні — ставимо deep-link у бот для персонального відображення статусу
         long publishedCount = postRepository.countByEvent_IdAndStatus(e.getId(), PostStatus.PUBLISHED);
+
         InlineKeyboardMarkup kb = (publishedCount == 0)
-                ? telegramService.eventKeyboard(e.getId(), false, linkUrl)                 // 1-й пост
-                : telegramService.eventKeyboardPublicFollowup(e.getId(), linkUrl);         // 2-й і далі
+                ? telegramService.eventKeyboardPublicFirst(e.getId(), linkUrl)     // «Підписатися»
+                : telegramService.eventKeyboardPublicFollowup(e.getId(), linkUrl); // «Керувати підпискою»
 
         try {
             telegramService.sendMessage(chatId, text, kb);
         } catch (TelegramApiException e1) {
-            // загортаємо в RuntimeException, щоб не тягнути checked exception нагору
             throw new RuntimeException("Telegram API error while sending PUBLIC post: " + e1.getMessage(), e1);
         }
 
@@ -106,7 +99,8 @@ public class PostDispatchService {
     }
 
     /**
-     * Відправка поста підписникам івенту (direct повідомлення).
+     * Прямі повідомлення підписникам (приват):
+     * тут доречні callback-кнопки «Підписатися/Відписатися».
      */
     private int dispatchSubscribers(Post p) {
         Event e = p.getEvent();
@@ -125,7 +119,6 @@ public class PostDispatchService {
                 telegramService.sendMessage(String.valueOf(chatId), text, kb);
                 sent++;
             } catch (TelegramApiException e1) {
-                // логнемо, але дамо іншим отримати свій месседж
                 log.error("Telegram API error while sending to subscriber chatId={}: {}", chatId, e1.getMessage(), e1);
             }
         }
@@ -148,10 +141,6 @@ public class PostDispatchService {
         return (t + (b.isBlank() ? "" : "\n\n" + b)).trim();
     }
 
-    /**
-     * 1) Перевага за Event.getUrl() (якщо додав це поле в модель)
-     * 2) Відкат на Event.getCoverUrl()
-     */
     private String resolveEventLinkUrl(Event e) {
         if (e == null) return null;
         try {
@@ -161,7 +150,6 @@ public class PostDispatchService {
                 return s.trim();
             }
         } catch (NoSuchMethodException ignore) {
-            // не додано поле url — ок
         } catch (Exception ex) {
             log.warn("resolveEventLinkUrl via getUrl failed: {}", ex.toString());
         }

@@ -29,8 +29,6 @@ public class TelegramService extends TelegramLongPollingBot {
     private final EventRepository events;
     private final EventSubscriptionRepository subs;
     private final TelegramAccountProvisioner provisioner;
-
-    // Транзакційний сервіс підписок (виносить write-логіку, щоб не було No EntityManager ...)
     private final EventSubscriptionService eventSubscriptionService;
 
     @Value("${telegram.bot.token}")
@@ -39,22 +37,15 @@ public class TelegramService extends TelegramLongPollingBot {
     @Value("${telegram.bot.username}")
     private String botUsername;
 
-    /* ============================ ПУБЛІЧНИЙ API для інших сервісів ============================ */
+    /* ============================ ПУБЛІЧНИЙ API ============================ */
 
-    /**
-     * Публічний метод, який можна викликати з інших сервісів (PostDispatchService тощо).
-     * Кидає TelegramApiException для коректного хендлінгу на рівні викликача.
-     */
     public void sendMessage(String chatId, String text, InlineKeyboardMarkup kb) throws TelegramApiException {
         SendMessage msg = new SendMessage(chatId, text);
         if (kb != null) msg.setReplyMarkup(kb);
         execute(msg);
     }
 
-    /**
-     * Клавіатура для карточки івенту з можливістю безпосередньо підписатися/відписатися (callback_data).
-     * Використовується коли очікуємо callback від користувача (наприклад, при першому пості чи в приваті).
-     */
+    /** Приватні (direct) кнопки з callback — підпис/відпис. */
     public InlineKeyboardMarkup eventKeyboard(long eventId, boolean subscribed, String linkUrl) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
@@ -75,11 +66,28 @@ public class TelegramService extends TelegramLongPollingBot {
         return kb;
     }
 
-    /**
-     * Клавіатура для наступних PUBLIC-постів у канал: у каналах callback-кнопки часто не те, що нам треба.
-     * Тому даємо URL-кнопку з deep-link у бота `/start <eventId>`, щоб користувач відкрив бота
-     * і вже там натиснув підписку. Додаємо опційне посилання на івент.
-     */
+    /** ПЕРШИЙ пост у каналі: URL-кнопка «Підписатися» (deep-link у бота). */
+    public InlineKeyboardMarkup eventKeyboardPublicFirst(long eventId, String linkUrl) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        InlineKeyboardButton subscribe = new InlineKeyboardButton();
+        subscribe.setText("Підписатися");
+        subscribe.setUrl(buildStartDeepLink(eventId)); // лише deep-link
+        rows.add(List.of(subscribe));
+
+        if (linkUrl != null && !linkUrl.isBlank()) {
+            InlineKeyboardButton link = new InlineKeyboardButton();
+            link.setText("Посилання");
+            link.setUrl(linkUrl);
+            rows.add(List.of(link));
+        }
+
+        InlineKeyboardMarkup kb = new InlineKeyboardMarkup();
+        kb.setKeyboard(rows);
+        return kb;
+    }
+
+    /** Наступні пости у каналі: URL-кнопка «Керувати підпискою» (deep-link у бота). */
     public InlineKeyboardMarkup eventKeyboardPublicFollowup(long eventId, String linkUrl) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
@@ -105,6 +113,7 @@ public class TelegramService extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         try {
+            // deep-link: /start <eventId>
             if (update.hasMessage() && update.getMessage().hasText()) {
                 String txt = update.getMessage().getText();
                 if ("/start".equalsIgnoreCase(txt) || txt.startsWith("/start ")) {
@@ -119,17 +128,18 @@ public class TelegramService extends TelegramLongPollingBot {
                         } catch (NumberFormatException ignore) { /* no-op */ }
                     }
 
-                    // Базове привітання
                     safeSend(String.valueOf(chatId),
                             "Привіт! Надішліть /start <eventId>, щоб керувати підпискою на івент.",
                             null);
                 }
-            } else if (update.hasCallbackQuery()) {
+            }
+            // callback (працює в основному у приваті; у каналі відповіді не шлемо)
+            else if (update.hasCallbackQuery()) {
                 CallbackQuery cb = update.getCallbackQuery();
                 String data = cb.getData();
                 long chatId = cb.getMessage().getChatId();
+                boolean fromChannel = cb.getMessage() != null && cb.getMessage().isChannelMessage();
 
-                // Синхронізація акаунта користувача
                 UserTelegram tgAcc = provisioner.ensure(cb.getFrom());
 
                 if (data != null && data.startsWith("EVT_SUB:")) {
@@ -138,7 +148,10 @@ public class TelegramService extends TelegramLongPollingBot {
 
                     Event event = events.findById(eventId).orElse(null);
                     InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
-                    safeSend(String.valueOf(chatId), "Підписка активована ✅", kb);
+
+                    if (!fromChannel) {
+                        safeSend(String.valueOf(chatId), "Підписка активована ✅", kb);
+                    }
                     ack(cb, "Підписка активована");
 
                 } else if (data != null && data.startsWith("EVT_UNSUB:")) {
@@ -147,7 +160,10 @@ public class TelegramService extends TelegramLongPollingBot {
 
                     Event event = events.findById(eventId).orElse(null);
                     InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
-                    safeSend(String.valueOf(chatId), "Підписка вимкнена ❌", kb);
+
+                    if (!fromChannel) {
+                        safeSend(String.valueOf(chatId), "Підписка вимкнена ❌", kb);
+                    }
                     ack(cb, "Відписка виконана");
 
                 } else {
@@ -197,7 +213,6 @@ public class TelegramService extends TelegramLongPollingBot {
     }
 
     private String buildStartDeepLink(long eventId) {
-        // напр.: https://t.me/<botUsername>?start=<eventId>
         return "https://t.me/" + botUsername + "?start=" + eventId;
     }
 
@@ -209,13 +224,13 @@ public class TelegramService extends TelegramLongPollingBot {
             var m1 = e.getClass().getMethod("getUrl");
             Object v1 = m1.invoke(e);
             if (v1 instanceof String s1 && s1 != null && !s1.isBlank()) return s1.trim();
-        } catch (Exception ex) { /* ок, пробуємо coverUrl */ }
+        } catch (Exception ignore) {}
 
         try {
             var m2 = e.getClass().getMethod("getCoverUrl");
             Object v2 = m2.invoke(e);
             if (v2 instanceof String s2 && s2 != null && !s2.isBlank()) return s2.trim();
-        } catch (Exception ex) { /* no-op */ }
+        } catch (Exception ignore) {}
 
         return null;
     }

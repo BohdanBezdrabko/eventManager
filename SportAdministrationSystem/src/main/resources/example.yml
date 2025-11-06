@@ -3,16 +3,16 @@ spring:
     active: dev
 
   application:
-    name: ExampleApplication
+    name: SportAdministrationSystem
 
   jackson:
     serialization:
       WRITE_DATES_AS_TIMESTAMPS: false
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/example_db
-    username: example_user
-    password: example_password
+    url: jdbc:postgresql://localhost:5432/sport_admin
+    username: postgres
+    password: postgres
     driver-class-name: org.postgresql.Driver
 
   jpa:
@@ -34,38 +34,36 @@ spring:
       enabled: true
 
 server:
-  port: 8080
+  port: 8081
 
 app:
   cors:
     allowed-origins:
-      - http://localhost:3000
-      - http://localhost:4200
+      - http://localhost:5175
 
 jwt:
-  # Example secret key – replace with a strong, random value in real use
-  secret: CHANGE_ME_TO_A_VERY_LONG_RANDOM_SECRET_KEY_1234567890
-  # names expected by code
-  access-exp-min: 30        # access token lifetime in minutes
-  refresh-exp-days: 14      # refresh token lifetime in days
-  access-ttl-minutes: 30
-  refresh-ttl-days: 14
+  # DEV-секрет
+  secret: Qb2P8d9eS3nZk7cA1rT5uV8xY2mN4pL6wH0J3K9R2F5M8C1D7E4G6H8J0L2Q4S6
+  # назви, які очікує код
+  access-exp-min: 60
+  refresh-exp-days: 7
+  access-ttl-minutes: 60
+  refresh-ttl-days: 7
 
 telegram:
   bot:
-    # Example token – replace with real bot token from BotFather
-    token: 1234567890:AAExampleTelegramBotTokenReplaceMe
-    username: ExampleEventBot
-    chat-id: -1001234567890
-    defaultChatId: -1001234567890
+    token: 8470789325:AAFEfsjKlPbOkBWPVXfN99o9ahumV9_vWHg
+    username: EventKPIbot
+    chat-id: -1003137847951
+    defaultChatId: -1003137847951
 
 dispatcher:
-  batch-size: 100
-  retry-batch-size: 250
-  max-attempts: 3
-  interval-ms: 30000   # 30 seconds
+  batch-size: 50
+  retry-batch-size: 200
+  max-attempts: 5
+  interval-ms: 60000
 
 logging:
   level:
     org.springframework.security: INFO
-    com.example.exampleapplication: DEBUG
+    com.example.sportadministrationsystem: INFO
