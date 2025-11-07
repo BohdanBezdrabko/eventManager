@@ -27,7 +27,7 @@ jwt:
   refresh-ttl-days: 7
 
 telegram:
-  enabled: false          
+  enabled: false
   bot:
     token: dummy
     username: dummy
