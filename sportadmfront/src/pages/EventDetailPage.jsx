@@ -11,15 +11,6 @@ import { listPosts, Audience, Channel, PostStatus } from "@/services/posts.jsx";
 function fmt(dt) {
     return dt ? new Date(dt).toLocaleString() : "—";
 }
-function isValidHttpUrl(u) {
-    try {
-        const url = new URL(u);
-        return url.protocol === "http:" || url.protocol === "https:";
-    } catch {
-        return false;
-    }
-}
-
 export default function EventDetailPage() {
     const { id } = useParams();
 
@@ -116,10 +107,6 @@ export default function EventDetailPage() {
     }, [fetchEvent, fetchCreatorSoft, fetchTgCountSoft, fetchPosts]);
 
     const tags = useMemo(() => (Array.isArray(ev?.tags) ? ev.tags : []), [ev]);
-    const bgStyle =
-        ev?.coverUrl && isValidHttpUrl(ev.coverUrl)
-            ? { backgroundImage: `url(${ev.coverUrl})` }
-            : undefined;
 
     // універсальне ім'я автора з дефолтом
     const authorName = useMemo(
@@ -133,18 +120,34 @@ export default function EventDetailPage() {
         [creator]
     );
 
-    // >>> НОВЕ: знаходимо URL івенту та відображаємо його ТІЛЬКИ текстом
-    const website = useMemo(() => {
-        const raw =
-            ev?.siteUrl ??
-            ev?.url ??
-            ev?.website ??
-            ev?.link ??
-            null;
-        if (typeof raw !== "string") return null;
-        const t = raw.trim();
-        return t.length ? t : null;
-    }, [ev]);
+    // URL беремо тільки з coverUrl
+    const website = useMemo(
+        () => (typeof ev?.coverUrl === "string" ? ev.coverUrl.trim() : ""),
+        [ev?.coverUrl]
+    );
+
+    // Красивий текст для посилання (скорочений, без https:// і довжелезного хвоста)
+    const websiteLabel = useMemo(() => {
+        if (!website) return "";
+
+        try {
+            const url = new URL(website);
+            let label = url.hostname.replace(/^www\./, "");
+
+            if (url.pathname && url.pathname !== "/") {
+                const path =
+                    url.pathname.length > 20
+                        ? url.pathname.slice(0, 20) + "…"
+                        : url.pathname;
+                label += path;
+            }
+
+            return label;
+        } catch {
+            // Якщо URL не валідний — просто обрізаємо рядок
+            return website.length > 40 ? website.slice(0, 40) + "…" : website;
+        }
+    }, [website]);
 
     return (
         <div className="container py-4">
@@ -175,7 +178,6 @@ export default function EventDetailPage() {
                 <>
                     {/* HERO */}
                     <section className="hero">
-                        <div className="hero__cover" style={bgStyle} />
                         <div className="hero__body">
                             <div className="hero__row">
                                 <span className="chip">{fmt(ev.startAt)}</span>
@@ -215,7 +217,9 @@ export default function EventDetailPage() {
                                         <select
                                             className="select"
                                             value={filters.status}
-                                            onChange={(e) => setFilters((s) => ({ ...s, status: e.target.value }))}
+                                            onChange={(e) =>
+                                                setFilters((s) => ({ ...s, status: e.target.value }))
+                                            }
                                         >
                                             <option value="">всі</option>
                                             <option value={PostStatus.DRAFT}>чернетки</option>
@@ -230,7 +234,9 @@ export default function EventDetailPage() {
                                         <select
                                             className="select"
                                             value={filters.audience}
-                                            onChange={(e) => setFilters((s) => ({ ...s, audience: e.target.value }))}
+                                            onChange={(e) =>
+                                                setFilters((s) => ({ ...s, audience: e.target.value }))
+                                            }
                                         >
                                             <option value="">всі</option>
                                             <option value={Audience.PUBLIC}>публічна</option>
@@ -242,7 +248,9 @@ export default function EventDetailPage() {
                                         <select
                                             className="select"
                                             value={filters.channel}
-                                            onChange={(e) => setFilters((s) => ({ ...s, channel: e.target.value }))}
+                                            onChange={(e) =>
+                                                setFilters((s) => ({ ...s, channel: e.target.value }))
+                                            }
                                         >
                                             <option value="">всі</option>
                                             <option value={Channel.TELEGRAM}>Telegram</option>
@@ -254,7 +262,9 @@ export default function EventDetailPage() {
                                             className="input"
                                             placeholder="Пошук у постах…"
                                             value={filters.q}
-                                            onChange={(e) => setFilters((s) => ({ ...s, q: e.target.value }))}
+                                            onChange={(e) =>
+                                                setFilters((s) => ({ ...s, q: e.target.value }))
+                                            }
                                         />
                                     </div>
                                 </div>
@@ -272,7 +282,9 @@ export default function EventDetailPage() {
                                         <li key={p.id} className="card card--row">
                                             <div>
                                                 <h4 className="card__title">
-                                                    <Link to={`/events/${id}/posts/${p.id}`}>{p.title || "Пост"}</Link>
+                                                    <Link to={`/events/${id}/posts/${p.id}`}>
+                                                        {p.title || "Пост"}
+                                                    </Link>
                                                 </h4>
                                                 <div className="card__meta">
                                                     <span className="chip">{fmt(p.publishAt)}</span>
@@ -317,15 +329,25 @@ export default function EventDetailPage() {
                                     <div className="info__value">{authorName}</div>
                                 </div>
 
-                                {/* >>> НОВЕ: URL івенту як простий текст, без <a> і без переходів */}
-                                {website ? (
-                                    <div className="info__row">
-                                        <div className="info__label">Сайт</div>
-                                        <div className="info__value">
-                                            <code className="url-plain">{website}</code>
-                                        </div>
+                                {/* Сайт: завжди показуємо рядок; якщо урл є — лінк, якщо ні — тире */}
+                                <div className="info__row">
+                                    <div className="info__label">Сайт</div>
+                                    <div className="info__value">
+                                        {website ? (
+                                            <a
+                                                href={website}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="url-plain"
+                                                title={website}
+                                            >
+                                                {websiteLabel || "Відкрити сайт"}
+                                            </a>
+                                        ) : (
+                                            "—"
+                                        )}
                                     </div>
-                                ) : null}
+                                </div>
 
                                 <div className="divider" />
                                 <div className="info__row">
@@ -363,7 +385,7 @@ const styles = `
 .input{ height:36px; padding:0 12px; border-radius:10px; border:1px solid #ffffff22; background:#0f1826; color:var(--text) }
 .select{ background:var(--panel-2); border:1px solid #ffffff1a; color:var(--text); padding:8px 10px; border-radius:10px; outline:none }
 
-.hero{ display:grid; grid-template-columns: 320px 1fr; gap:14px; margin-bottom:16px }
+.hero{ display:block; margin-bottom:16px }
 .hero__cover{ width:100%; height:220px; background:#0f1826 center/cover no-repeat; border-radius:14px; border:1px solid #ffffff14 }
 .hero__body{ background:var(--panel); border:1px solid #ffffff14; border-radius:14px; padding:14px }
 .hero__row{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px }
@@ -392,7 +414,7 @@ const styles = `
 .info__label{ color:var(--muted); font-size:12px }
 .info__value{ color:var(--text) }
 
-.url-plain{ background:#0f1826; border:1px solid #ffffff1a; padding:2px 6px; border-radius:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; user-select:text; word-break:break-all }
+.url-plain{ background:#0f1826; border:1px solid #ffffff1a; padding:2px 6px; border-radius:6px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace; user-select:text; word-break:break-all; text-decoration:none; color:var(--text) }
 
 .divider{ height:1px; background:#ffffff14; margin:12px 0 }
 .muted{ color:var(--muted) }
@@ -400,7 +422,6 @@ const styles = `
 .alert-danger{ background:#3b0f14; border:1px solid #a83a46; color:#ffd5d8 }
 
 @media (max-width:980px){
-  .hero{ grid-template-columns:1fr }
   .grid{ grid-template-columns:1fr }
 }
 `;
