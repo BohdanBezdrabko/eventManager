@@ -24,13 +24,19 @@ public class CorsConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         List<String> allowed = Binder.get(env)
                 .bind("app.cors.allowed-origins", Bindable.listOf(String.class))
-                .orElse(List.of("http://localhost:5173", "http://localhost:5175"))
+                .orElse(List.of(
+                        "http://localhost:*",
+                        "http://127.0.0.1:*",
+                        "http://raspberrypi.local:*",
+                        "http://*.local:*",
+                        "http://192.168.*.*:*"
+                ))
                 .stream().filter(s -> s != null && !s.isBlank()).map(String::trim).toList();
 
         CorsConfiguration c = new CorsConfiguration();
-        c.setAllowedOrigins(allowed);
+        c.setAllowedOriginPatterns(allowed);
         c.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-        c.setAllowedHeaders(List.of("Authorization","Content-Type","Accept","X-Requested-With"));
+        c.addAllowedHeader("*");
         c.setExposedHeaders(List.of("Authorization","Location","Content-Disposition"));
         c.setAllowCredentials(true);
 
@@ -38,4 +44,5 @@ public class CorsConfig {
         source.registerCorsConfiguration("/**", c);
         return source;
     }
+
 }

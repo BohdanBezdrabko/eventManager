@@ -1,0 +1,48 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    platform: linux/arm64
+    container_name: event-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: sport_admin
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  backend:
+    image: bohdanbezdrabko/event-backend:latest
+    build:
+      context: ./SportAdministrationSystem
+      dockerfile: Dockerfile
+    platform: linux/arm64
+    container_name: event-backend
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "8081:8081"
+
+  frontend:
+    image: bohdanbezdrabko/event-frontend:latest
+    build:
+      context: ./sportadmfront
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: "/api/v1"
+    platform: linux/arm64
+    container_name: event-frontend
+    restart: always
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+
+volumes:
+  db_data:

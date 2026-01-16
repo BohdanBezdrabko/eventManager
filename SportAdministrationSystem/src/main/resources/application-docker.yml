@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://db:5432/sport_admin
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+server:
+  address: 0.0.0.0
+  port: 8081
+app:
+  cors:
+    allowed-origins:
+      - "http://localhost:*"
+      - "http://127.0.0.1:*"
+      - "http://raspberrypi.local:*"
+      - "http://*.local:*"
+      - "http://192.168.*.*:*"
