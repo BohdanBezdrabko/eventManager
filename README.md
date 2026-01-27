@@ -97,9 +97,16 @@ Images are tagged with:
 
 ### Running with Docker Compose
 
+The existing `docker-compose.yml` file builds images locally. To use the GHCR images instead, you can either:
+
 ```bash
-# Pull and run all services (backend, frontend, database)
+# Option 1: Build and run locally (uses Dockerfiles)
 docker-compose up -d
+
+# Option 2: Pull from GHCR and run (update docker-compose.yml image references)
+# Modify docker-compose.yml to use:
+#   backend image: ghcr.io/vitos-exe/eventmanager/backend:latest
+#   frontend image: ghcr.io/vitos-exe/eventmanager/frontend:latest
 ```
 
 ### CI/CD Workflow
