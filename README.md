@@ -77,3 +77,43 @@ cd sportadmfront
 npm install
 npm run dev
 ```
+
+---
+
+## Docker & CI/CD
+
+### Docker Images
+
+The project includes Dockerfiles for both backend and frontend services. Docker images are automatically built and pushed to GitHub Container Registry (GHCR) on every push to the `main` branch.
+
+#### Published Images:
+- **Backend**: `ghcr.io/vitos-exe/eventmanager/backend:latest`
+- **Frontend**: `ghcr.io/vitos-exe/eventmanager/frontend:latest`
+
+Images are tagged with:
+- `latest` - Latest version from main branch
+- `main-<sha>` - Specific commit from main branch
+- `main` - Main branch tag
+
+### Running with Docker Compose
+
+```bash
+# Pull and run all services (backend, frontend, database)
+docker-compose up -d
+```
+
+### CI/CD Workflow
+
+The GitHub Actions workflow (`.github/workflows/ci-cd.yml`) automatically:
+1. **Tests** backend and frontend on every push and PR
+2. **Builds artifacts** (JAR and dist files) on pushes to main
+3. **Builds and pushes Docker images** to GHCR on pushes to main
+
+The workflow uses:
+- Docker Buildx for multi-platform builds
+- GitHub Actions cache for faster builds
+- GITHUB_TOKEN for authentication (no manual secrets needed)
+
+### Permissions
+
+Images pushed to GHCR are automatically linked to this repository and inherit repository visibility settings.
