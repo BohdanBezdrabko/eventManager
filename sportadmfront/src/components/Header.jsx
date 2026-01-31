@@ -1,22 +1,39 @@
-// src/components/Header.jsx
-import { NavLink, Link, useNavigate } from "react-router-dom";
-// якщо alias "@" не налаштований у vite.config.js, заміни на:
-// import { useAuth } from "../context/AuthContext";
+import { NavLink, Link, useNavigate, useLocation } from "react-router-dom";
+import { useRef, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import "./header.css";
 
 export default function Header() {
     const { user, logout, booting } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
+
+    const navRef = useRef(null);
+    const togglerRef = useRef(null);
+
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [isDarkTheme, setIsDarkTheme] = useState(false);
+
+    useEffect(() => {
+        const isDark =
+            document.documentElement.classList.contains("dark") ||
+            localStorage.getItem("theme") === "dark";
+        setIsDarkTheme(isDark);
+
+        const observer = new MutationObserver(() => {
+            const dark = document.documentElement.classList.contains("dark");
+            setIsDarkTheme(dark);
+        });
+
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["class"],
+        });
+
+        return () => observer.disconnect();
+    }, []);
 
     const linkClass = ({ isActive }) => "nav-link" + (isActive ? " active" : "");
-
-    const onLogout = async () => {
-        try {
-            await logout();
-        } finally {
-            navigate("/login", { replace: true });
-        }
-    };
 
     const isAdmin = (u) => {
         if (!u) return false;
@@ -28,59 +45,134 @@ export default function Header() {
         return roles.includes("ROLE_ADMIN") || roles.includes("ADMIN");
     };
 
+    const closeMenu = () => setMenuOpen(false);
+    const toggleMenu = () => setMenuOpen((prev) => !prev);
+
+    const onLogout = async () => {
+        closeMenu();
+        try {
+            await logout();
+        } finally {
+            navigate("/login", { replace: true });
+        }
+    };
+
+    // ✅ Закривати меню при будь-якій зміні маршруту
+    useEffect(() => {
+        closeMenu();
+    }, [location.pathname]);
+
+    // ✅ Клік “поза” (але не закривати, якщо клік по бургеру)
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            const menuEl = navRef.current;
+            const btnEl = togglerRef.current;
+
+            const clickedMenu = menuEl && menuEl.contains(e.target);
+            const clickedButton = btnEl && btnEl.contains(e.target);
+
+            if (!clickedMenu && !clickedButton) closeMenu();
+        };
+
+        if (menuOpen) {
+            document.addEventListener("mousedown", handleClickOutside);
+            return () => document.removeEventListener("mousedown", handleClickOutside);
+        }
+    }, [menuOpen]);
+
     return (
-        <nav className="navbar navbar-expand-lg navbar-light bg-light shadow-sm">
-            <div className="container">
-                <Link className="navbar-brand" to="/">EventSys</Link>
+        <nav className={`navbar ${isDarkTheme ? "dark-theme" : ""}`}>
+            <div className="container-fluid">
+                <Link className="navbar-brand" to="/" onClick={closeMenu}>
+                    EventSys
+                </Link>
 
                 <button
-                    className="navbar-toggler"
+                    ref={togglerRef}
+                    className={`navbar-toggler ${menuOpen ? "is-open" : ""}`}
                     type="button"
-                    data-bs-toggle="collapse"
-                    data-bs-target="#mainNav"
-                    aria-controls="mainNav"
-                    aria-expanded="false"
-                    aria-label="Toggle navigation"
+                    onClick={toggleMenu}
+                    aria-label="Меню"
+                    aria-expanded={menuOpen}
+                    aria-controls="main-nav"
                 >
-                    <span className="navbar-toggler-icon"></span>
+          <span className="burger" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
                 </button>
 
-                <div className="collapse navbar-collapse" id="mainNav">
-                    <ul className="navbar-nav me-auto mb-2 mb-lg-0">
+                <div
+                    id="main-nav"
+                    ref={navRef}
+                    className={`navbar-menu ${menuOpen ? "show" : ""}`}
+                >
+                    <ul className="navbar-nav">
                         <li className="nav-item">
-                            <NavLink to="/" className={linkClass} end>Головна</NavLink>
-                        </li>
-                        <li className="nav-item">
-                            <NavLink to="/events" className={linkClass}>Івенти</NavLink>
+                            <NavLink to="/" className={linkClass} end onClick={closeMenu}>
+                                Головна
+                            </NavLink>
                         </li>
 
-                        {/* Показуємо захищені пункти лише після завершення booting */}
+                        <li className="nav-item">
+                            <NavLink to="/events" className={linkClass} onClick={closeMenu}>
+                                Івенти
+                            </NavLink>
+                        </li>
+
                         {!booting && user && (
                             <li className="nav-item">
-                                <NavLink to="/dashboard" className={linkClass}>Кабінет</NavLink>
+                                <NavLink
+                                    to="/dashboard"
+                                    className={linkClass}
+                                    onClick={closeMenu}
+                                >
+                                    Кабінет
+                                </NavLink>
                             </li>
                         )}
+
                         {!booting && user && isAdmin(user) && (
                             <li className="nav-item">
-                                <NavLink to="/events/create" className={linkClass}>Створити івент</NavLink>
+                                <NavLink
+                                    to="/events/create"
+                                    className={linkClass}
+                                    onClick={closeMenu}
+                                >
+                                    Створити івент
+                                </NavLink>
                             </li>
                         )}
-                    </ul>
 
-                    <ul className="navbar-nav ms-auto">
-                        {/* Поки booting — нічого не показуємо справа, щоб уникнути миготіння і хибних редіректів */}
-                        {booting ? null : !user ? (
-                            <>
-                                <li className="nav-item">
-                                    <NavLink to="/login" className={linkClass}>Увійти</NavLink>
-                                </li>
-                                <li className="nav-item">
-                                    <NavLink to="/register" className={linkClass}>Реєстрація</NavLink>
-                                </li>
-                            </>
-                        ) : (
+                        <li className="nav-item separator">
+                            {booting ? null : !user ? (
+                                <NavLink
+                                    to="/login"
+                                    className={linkClass}
+                                    onClick={closeMenu}
+                                >
+                                    Увійти
+                                </NavLink>
+                            ) : (
+                                <button
+                                    className="btn btn-outline-danger btn-sm nav-logout-btn"
+                                    onClick={onLogout}
+                                >
+                                    Вийти ({user.username})
+                                </button>
+                            )}
+                        </li>
+
+                        {!user && !booting && (
                             <li className="nav-item">
-                                <button className="btn btn-outline-danger" onClick={onLogout}>Вийти</button>
+                                <NavLink
+                                    to="/register"
+                                    className={linkClass}
+                                    onClick={closeMenu}
+                                >
+                                    Реєстрація
+                                </NavLink>
                             </li>
                         )}
                     </ul>
