@@ -33,3 +33,17 @@ telegram:
     username: dummy
     chat-id: 0
     defaultChatId: 0
+
+# WhatsApp test properties: provide safe dummy values so context loads during tests
+whatsapp:
+  enabled: false
+  graph:
+    base-url: "http://localhost"
+    version: "v1"
+  access-token: "dummy"
+  phone-number-id: "0"
+  waba-id: "0"
+  webhook:
+    callback-url: "http://localhost/api/v1/whatsapp/webhook"
+    verify-token: "test-dummy"
+    app-secret: "test-dummy"
