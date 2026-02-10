@@ -98,7 +98,7 @@ export default function CreatePostPage() {
                             <label className="cep-label">Канал</label>
                             <select className="cep-input" name="channel" value={form.channel} onChange={onChange}>
                                 <option value={Channel.TELEGRAM}>Telegram</option>
-                                <option value={Channel.EMAIL}>Email</option>
+                                <option value={Channel.WHATSAPP}>WhatsApp</option>
                             </select>
                         </div>
                     </div>

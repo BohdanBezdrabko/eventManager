@@ -51,8 +51,24 @@ export const getEventsByLocation = (location) =>
     http.get(`${base}/by-location/${encodeURIComponent(location)}`);
 
 /** Кількість Telegram-підписок для події (використовується на деталях) */
-export const getTelegramSubscriptionCount = (eventId) =>
-    http.get(`${base}/${encodeURIComponent(eventId)}/subscription/telegram/count`);
+export const getTelegramSubscriptionCount = (eventId) => {
+    if (!eventId) throw new Error("eventId is required");
+    return http.get(`${base}/${encodeURIComponent(eventId)}/subscription/telegram/count`);
+};
+
+/** Кількість WhatsApp-підписок для події (використовується на деталях) */
+export const getWhatsAppSubscriptionCount = (eventId) => {
+    if (!eventId) throw new Error("eventId is required");
+    return http.get(`${base}/${encodeURIComponent(eventId)}/subscription/whatsapp/count`);
+};
+
+/** Посилання для зв'язку з Telegram-ботом (для користувача) */
+export const getTelegramLinkUrl = () =>
+    http.get(`/telegram/link-url`);
+
+/** Посилання для зв'язку з WhatsApp-ботом (для користувача) */
+export const getWhatsAppLinkUrl = () =>
+    http.get(`/whatsapp/link-url`);
 
 /** Мій статус підписки на подію (якщо використовується у деталях) */
 export const getMySubscriptionStatus = (eventId) =>

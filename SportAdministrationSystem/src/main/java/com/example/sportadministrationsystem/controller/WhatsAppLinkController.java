@@ -12,15 +12,18 @@ import java.util.Map;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/v1/telegram")
-public class TelegramLinkController {
+@RequestMapping("/api/v1/whatsapp")
+public class WhatsAppLinkController {
 
     private final JwtTokenProvider jwtTokenProvider;
 
-    @Value("${telegram.bot.username}")
-    private String botUsername;
+    @Value("${whatsapp.business-phone-e164:}")
+    private String businessPhoneE164;
 
-    /** Повертає deep-link для підключення Telegram: https://t.me/<bot>?start=<jwt> */
+    /**
+     * Повертає deep-link для підключення WhatsApp: https://wa.me/<phone>?text=START%20<jwt>
+     * Користувач натискає посилання та починає чат з WhatsApp-ботом
+     */
     @GetMapping("/link-url")
     public ResponseEntity<?> linkUrl(@AuthenticationPrincipal UserDetails me) {
         // Перевірка автентифікації
@@ -30,20 +33,28 @@ public class TelegramLinkController {
             );
         }
 
-        // Перевірка конфігурації
-        if (botUsername == null || botUsername.isBlank()) {
+        if (businessPhoneE164 == null || businessPhoneE164.isBlank()) {
             return ResponseEntity.badRequest().body(
-                Map.of("error", "ConfigurationError", "message", "Telegram bot username not configured")
+                Map.of("error", "ConfigurationError", "message", "WhatsApp integration not configured")
             );
         }
 
         try {
             String token = jwtTokenProvider.generateAccessToken(me);
-            String url = "https://t.me/" + botUsername + "?start=" + token;
+
+            String phone = businessPhoneE164.trim();
+            if (phone.startsWith("+")) {
+                phone = phone.substring(1);
+            }
+
+            String text = "START " + token;
+            String url = "https://wa.me/" + phone + "?text=" +
+                        java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
+
             return ResponseEntity.ok(url);
         } catch (Exception e) {
             return ResponseEntity.status(500).body(
-                Map.of("error", "InternalError", "message", "Failed to generate Telegram link: " + e.getMessage())
+                Map.of("error", "InternalError", "message", "Failed to generate WhatsApp link: " + e.getMessage())
             );
         }
     }

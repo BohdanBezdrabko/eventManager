@@ -50,14 +50,20 @@ export default function DashboardPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
-    const now = Date.now();
+    const now = useMemo(() => Date.now(), []);
+
     const upcoming = useMemo(
-        () => events.filter((e) => new Date(e.startAt || 0).getTime() >= now).sort(byStartAsc),
-        [events]
+        () => events
+            .filter((e) => new Date(e.startAt || 0).getTime() >= now)
+            .sort(byStartAsc),
+        [events, now]
     );
+
     const past = useMemo(
-        () => events.filter((e) => new Date(e.startAt || 0).getTime() < now).sort(byStartAsc),
-        [events]
+        () => events
+            .filter((e) => new Date(e.startAt || 0).getTime() < now)
+            .sort(byStartAsc),
+        [events, now]
     );
 
     return (

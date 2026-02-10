@@ -113,7 +113,7 @@ public class TelegramService extends TelegramLongPollingBot {
     @Override
     public void onUpdateReceived(Update update) {
         try {
-            // deep-link: /start <eventId>
+            // deep-link: /start <eventId> або /start <eventId>:<postId>
             if (update.hasMessage() && update.getMessage().hasText()) {
                 String txt = update.getMessage().getText();
                 if ("/start".equalsIgnoreCase(txt) || txt.startsWith("/start ")) {
@@ -122,14 +122,22 @@ public class TelegramService extends TelegramLongPollingBot {
                     if (txt.startsWith("/start ") && txt.length() > 7) {
                         String idStr = txt.substring(7).trim();
                         try {
-                            long eventId = Long.parseLong(idStr);
-                            handleStartWithEvent(chatId, eventId, update);
+                            // Формат: "123" або "123:456" (eventId:postId)
+                            if (idStr.contains(":")) {
+                                String[] parts = idStr.split(":");
+                                long eventId = Long.parseLong(parts[0]);
+                                long postId = Long.parseLong(parts[1]);
+                                handleStartWithPostId(chatId, eventId, postId, update);
+                            } else {
+                                long eventId = Long.parseLong(idStr);
+                                handleStartWithEvent(chatId, eventId, update);
+                            }
                             return;
                         } catch (NumberFormatException ignore) { /* no-op */ }
                     }
 
                     safeSend(String.valueOf(chatId),
-                            "Привіт! Надішліть /start <eventId>, щоб керувати підпискою на івент.",
+                            "📌 Команда: /start eventId\n\nПриклад: /start 12\n\nЩоб дізнатися номер eventi, перейдіть на наш сайт і оберіть івент.",
                             null);
                 }
             }
@@ -150,9 +158,10 @@ public class TelegramService extends TelegramLongPollingBot {
                     InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
 
                     if (!fromChannel) {
-                        safeSend(String.valueOf(chatId), "Підписка активована ✅", kb);
+                        String eventName = event != null ? event.getName() : "Івент #" + eventId;
+                        safeSend(String.valueOf(chatId), "✅ Ви успішно підписались на *" + eventName + "*\n\nЧекайте оновлення! 🎉", kb);
                     }
-                    ack(cb, "Підписка активована");
+                    ack(cb, "✅ Підписка активована");
 
                 } else if (data != null && data.startsWith("EVT_UNSUB:")) {
                     long eventId = parseId(data, "EVT_UNSUB:");
@@ -162,12 +171,13 @@ public class TelegramService extends TelegramLongPollingBot {
                     InlineKeyboardMarkup kb = eventKeyboard(eventId, nowActive, resolveEventLinkUrl(event));
 
                     if (!fromChannel) {
-                        safeSend(String.valueOf(chatId), "Підписка вимкнена ❌", kb);
+                        String eventName = event != null ? event.getName() : "Івент #" + eventId;
+                        safeSend(String.valueOf(chatId), "❌ Ви відписались від *" + eventName + "*", kb);
                     }
-                    ack(cb, "Відписка виконана");
+                    ack(cb, "❌ Відписка виконана");
 
                 } else {
-                    ack(cb, "Невідома дія");
+                    ack(cb, "⚠️ Невідома дія");
                 }
             }
         } catch (Exception e) {
@@ -197,10 +207,59 @@ public class TelegramService extends TelegramLongPollingBot {
 
         String link = resolveEventLinkUrl(event);
         InlineKeyboardMarkup kb = eventKeyboard(eventId, isSubscribed, link);
-        String text = isSubscribed
-                ? "Ви вже підписані на нагадування про цей івент."
-                : "Ви не підписані на цей івент. Натисніть кнопку нижче, щоб підписатися.";
+
+        String eventName = event.getName() != null ? event.getName() : "Івент #" + event.getId();
+        String eventDate = event.getStartAt() != null ?
+            new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm").format(event.getStartAt()) :
+            "Дата невідома";
+
+        String text = "📅 *" + eventName + "*\n" +
+                "🕐 " + eventDate + "\n" +
+                (event.getLocation() != null && !event.getLocation().isBlank() ? "📍 " + event.getLocation() + "\n" : "") +
+                "\n" +
+                (isSubscribed
+                        ? "✅ Ви вже підписані. Отримуватимете оновлення про цей івент."
+                        : "🔔 Натисніть кнопку нижче, щоб отримувати оновлення.");
         safeSend(String.valueOf(chatId), text, kb);
+    }
+
+    private void handleStartWithPostId(long chatId, long eventId, long postId, Update update) {
+        try {
+            UserTelegram tgAcc = provisioner.ensure(update.getMessage().getFrom());
+
+            Event event = events.findById(eventId).orElse(null);
+            if (event == null) {
+                safeSend(String.valueOf(chatId), "❌ Івент #" + eventId + " не знайдено.", null);
+                return;
+            }
+
+            // Для постів - показуємо повну інформацію про пост + івент
+            boolean isSubscribed = subs.existsByEventAndUserTelegramAndMessengerAndActiveIsTrue(
+                    event, tgAcc, Messenger.TELEGRAM);
+
+            String eventName = event.getName() != null ? event.getName() : "Івент #" + event.getId();
+            String eventDate = event.getStartAt() != null ?
+                new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm").format(event.getStartAt()) :
+                "Дата невідома";
+
+            String text = "📬 *" + eventName + "*\n" +
+                    "🕐 " + eventDate + "\n" +
+                    (event.getLocation() != null && !event.getLocation().isBlank() ? "📍 " + event.getLocation() + "\n" : "") +
+                    "\n" +
+                    "🔔 Подія #" + postId + "\n" +
+                    "\n" +
+                    (isSubscribed
+                            ? "✅ Ви вже підписані на оновлення цього івенту."
+                            : "Натисніть кнопку, щоб отримувати оновлення.");
+
+            String link = resolveEventLinkUrl(event);
+            InlineKeyboardMarkup kb = eventKeyboard(eventId, isSubscribed, link);
+
+            safeSend(String.valueOf(chatId), text, kb);
+        } catch (Exception e) {
+            log.error("handleStartWithPostId failed: {}", e.getMessage(), e);
+            safeSend(String.valueOf(chatId), "⚠️ Помилка обробки. Спробуйте ще раз.", null);
+        }
     }
 
     private void ack(CallbackQuery cb, String text) throws TelegramApiException {

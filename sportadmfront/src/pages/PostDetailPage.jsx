@@ -134,8 +134,33 @@ export default function PostDetailPage() {
 
                         <div className="actions">
                             <button disabled={busy} onClick={doPublishNow} className="btn btn-outline-primary">Опублікувати зараз</button>
+
+                            {/* Subscribe buttons for messaging */}
+                            {data.status === "PUBLISHED" && (
+                                <>
+                                    <div className="spacer" />
+                                    <a
+                                        href={`https://t.me/YourBotUsername?start=${eventId}:${postId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="btn btn-outline-primary"
+                                        title="Керувати підпискою через Telegram"
+                                    >
+                                        📱 Telegram
+                                    </a>
+                                    <a
+                                        href={`https://wa.me/?text=START%20${eventId}:${postId}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="btn btn-outline-primary"
+                                        title="Керувати підпискою через WhatsApp"
+                                    >
+                                        💬 WhatsApp
+                                    </a>
+                                </>
+                            )}
+
                             <div className="spacer" />
-                            {/* Кнопки зміни статусу видалено */}
                             <button disabled={busy} onClick={handleDelete} className="btn btn-ghost danger">Видалити</button>
                         </div>
                     </>

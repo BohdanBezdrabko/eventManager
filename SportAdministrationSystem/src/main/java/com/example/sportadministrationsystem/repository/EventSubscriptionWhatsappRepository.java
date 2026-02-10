@@ -24,4 +24,18 @@ public interface EventSubscriptionWhatsappRepository extends JpaRepository<Event
            and esw.userWhatsapp.waId is not null
     """)
     List<String> findSubscriberWaIds(@Param("eventId") Long eventId);
+
+    /**
+     * Рахує кількість активних WhatsApp-підписників на івент.
+     * Рахуємо тільки тих, у кого є wa_id (тобто реально зв'язані у WhatsApp),
+     * і лише active=true.
+     */
+    @Query("""
+        select count(distinct esw.userWhatsapp.waId)
+          from EventSubscriptionWhatsapp esw
+         where esw.event.id = :eventId
+           and esw.active = true
+           and esw.userWhatsapp.waId is not null
+    """)
+    long countActiveWhatsApp(@Param("eventId") Long eventId);
 }

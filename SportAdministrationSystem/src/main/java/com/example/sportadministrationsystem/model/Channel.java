@@ -1,3 +1,3 @@
 package com.example.sportadministrationsystem.model;
 
-public enum Channel {TELEGRAM, INTERNAL}
+public enum Channel {TELEGRAM, WHATSAPP, INTERNAL}

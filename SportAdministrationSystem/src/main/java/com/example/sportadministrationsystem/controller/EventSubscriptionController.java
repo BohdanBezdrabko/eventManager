@@ -2,6 +2,7 @@ package com.example.sportadministrationsystem.controller;
 
 import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
+import com.example.sportadministrationsystem.repository.EventSubscriptionWhatsappRepository;
 import com.example.sportadministrationsystem.service.EventService;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -17,6 +18,7 @@ public class EventSubscriptionController {
 
     private final EventService eventService;
     private final EventSubscriptionRepository eventSubscriptionRepository;
+    private final EventSubscriptionWhatsappRepository eventSubscriptionWhatsappRepository;
 
     /**
      * Статус мого зв’язку/підписки (ваш існуючий ендпоінт, за потреби доробите логіку всередині).
@@ -32,17 +34,39 @@ public class EventSubscriptionController {
 
     /**
      * Лише кількість активних Telegram-підписників на івент.
-     * Рахуємо тільки тих, у кого є tg_chat_id (тобто реально зв’язані в Telegram),
+     * Рахуємо тільки тих, у кого є tg_chat_id (тобто реально зв'язані в Telegram),
      * і лише active=true.
+     *
+     * @param eventId ID івента
+     * @return 200 OK з TelegramCountResponse, або 404 якщо івент не знайдено
      */
     @GetMapping("/telegram/count")
     public ResponseEntity<TelegramCountResponse> countTelegram(@PathVariable Long eventId) {
-        // Переконаємося, що івент існує (кине 404, якщо ні)
+        // Перевірка існування івента (кине 404 автоматично)
         eventService.getById(eventId);
 
         long count = eventSubscriptionRepository.countActiveTelegram(eventId);
         return ResponseEntity.ok(new TelegramCountResponse(
                 eventId, Messenger.TELEGRAM.name(), true, count
+        ));
+    }
+
+    /**
+     * Лише кількість активних WhatsApp-підписників на івент.
+     * Рахуємо тільки тих, у кого є wa_id (тобто реально зв'язані у WhatsApp),
+     * і лише active=true.
+     *
+     * @param eventId ID івента
+     * @return 200 OK з WhatsAppCountResponse, або 404 якщо івент не знайдено
+     */
+    @GetMapping("/whatsapp/count")
+    public ResponseEntity<WhatsAppCountResponse> countWhatsApp(@PathVariable Long eventId) {
+        // Перевірка існування івента (кине 404 автоматично)
+        eventService.getById(eventId);
+
+        long count = eventSubscriptionWhatsappRepository.countActiveWhatsApp(eventId);
+        return ResponseEntity.ok(new WhatsAppCountResponse(
+                eventId, "WHATSAPP", true, count
         ));
     }
 
@@ -60,5 +84,14 @@ public class EventSubscriptionController {
         private String messenger; // "TELEGRAM"
         private boolean active;   // завжди true для цього ендпоінта
         private long count;       // кількість унікальних підписників з tg_chat_id
+    }
+
+    @Data
+    @AllArgsConstructor
+    public static class WhatsAppCountResponse {
+        private Long eventId;
+        private String messenger; // "WHATSAPP"
+        private boolean active;   // завжди true для цього ендпоінта
+        private long count;       // кількість унікальних підписників з wa_id
     }
 }

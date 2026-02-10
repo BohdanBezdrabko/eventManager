@@ -5,8 +5,10 @@ import {
     getEventById,
     getEventCreator,
     getTelegramSubscriptionCount,
+    getWhatsAppSubscriptionCount,
 } from "@/services/events.jsx";
 import { listPosts, Audience, Channel, PostStatus } from "@/services/posts.jsx";
+import EventSubscriptionInfo from "@/components/EventSubscriptionInfo";
 
 function fmt(dt) {
     return dt ? new Date(dt).toLocaleString() : "—";
@@ -17,6 +19,7 @@ export default function EventDetailPage() {
     const [ev, setEv] = useState(null);
     const [creator, setCreator] = useState(null);
     const [tgSubs, setTgSubs] = useState(null);
+    const [waSubs, setWaSubs] = useState(null);
 
     const [loading, setLoading] = useState(true);
     const [err, setErr] = useState("");
@@ -63,6 +66,15 @@ export default function EventDetailPage() {
         }
     }, [id]);
 
+    const fetchWaCountSoft = useCallback(async () => {
+        try {
+            const x = await getWhatsAppSubscriptionCount(id);
+            setWaSubs(x);
+        } catch {
+            setWaSubs(null);
+        }
+    }, [id]);
+
     const fetchPosts = useCallback(async () => {
         try {
             setPostsLoading(true);
@@ -97,14 +109,20 @@ export default function EventDetailPage() {
         }
     }, [id, filters]);
 
+    // Inicial load (event, creator, counts) - запускається тільки при mount або при зміні id
     useEffect(() => {
         fetchEvent().then(() => {
-            // Після основного івенту — «мʼякі» запити
+            // Після основного івенту — «мʼякі» запити на counts
             fetchCreatorSoft();
             fetchTgCountSoft();
-            fetchPosts();
+            fetchWaCountSoft();
         });
-    }, [fetchEvent, fetchCreatorSoft, fetchTgCountSoft, fetchPosts]);
+    }, [id, fetchEvent, fetchCreatorSoft, fetchTgCountSoft, fetchWaCountSoft]);
+
+    // Posts load - запускається при зміні фільтрів або id
+    useEffect(() => {
+        fetchPosts();
+    }, [fetchPosts]);
 
     const tags = useMemo(() => (Array.isArray(ev?.tags) ? ev.tags : []), [ev]);
 
@@ -190,6 +208,9 @@ export default function EventDetailPage() {
                                 {typeof tgSubs?.count === "number" && (
                                     <span className="chip chip--ghost">TG: {tgSubs.count}</span>
                                 )}
+                                {typeof waSubs?.count === "number" && (
+                                    <span className="chip chip--ghost">WA: {waSubs.count}</span>
+                                )}
                             </div>
 
                             {tags.length > 0 && (
@@ -205,6 +226,15 @@ export default function EventDetailPage() {
                             {ev.description && <p className="hero__desc">{ev.description}</p>}
                         </div>
                     </section>
+
+                    {/* Event Subscription Info */}
+                    <EventSubscriptionInfo
+                        eventName={ev.name}
+                        startDate={ev.startAt}
+                        location={ev.location}
+                        tgCount={tgSubs?.count}
+                        waCount={waSubs?.count}
+                    />
 
                     <div className="grid">
                         {/* LEFT: Posts */}
@@ -254,7 +284,7 @@ export default function EventDetailPage() {
                                         >
                                             <option value="">всі</option>
                                             <option value={Channel.TELEGRAM}>Telegram</option>
-                                            <option value={Channel.EMAIL}>Email</option>
+                                            <option value={Channel.WHATSAPP}>WhatsApp</option>
                                         </select>
                                     </div>
                                     <div className="filters__item" style={{ flex: 1 }}>
@@ -351,13 +381,19 @@ export default function EventDetailPage() {
 
                                 <div className="divider" />
                                 <div className="info__row">
-                                    <div className="info__label">Пости</div>
+                                    <div className="info__label">Пості</div>
                                     <div className="info__value">{posts.length}</div>
                                 </div>
                                 <div className="info__row">
                                     <div className="info__label">TG підписки</div>
                                     <div className="info__value">
                                         {typeof tgSubs?.count === "number" ? tgSubs.count : "—"}
+                                    </div>
+                                </div>
+                                <div className="info__row">
+                                    <div className="info__label">WA підписки</div>
+                                    <div className="info__value">
+                                        {typeof waSubs?.count === "number" ? waSubs.count : "—"}
                                     </div>
                                 </div>
                             </div>

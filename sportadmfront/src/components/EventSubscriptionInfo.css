@@ -1,0 +1,125 @@
+/* src/components/EventSubscriptionInfo.css */
+
+.event-subscription-info {
+    background: linear-gradient(135deg, #0f1826 0%, #121c2b 100%);
+    border: 1px solid #ffffff14;
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+    backdrop-filter: blur(10px);
+}
+
+.esi-header {
+    margin-bottom: 20px;
+    border-bottom: 2px solid #5b8cff33;
+    padding-bottom: 16px;
+}
+
+.esi-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #e8eef6;
+    letter-spacing: -0.5px;
+}
+
+.esi-details {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.esi-detail-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #9fb2c7;
+    font-size: 14px;
+}
+
+.esi-icon {
+    font-size: 18px;
+    min-width: 24px;
+}
+
+.esi-text {
+    color: #e8eef6;
+    font-weight: 500;
+}
+
+.esi-subscription-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    border: 1px solid #ffffff0a;
+}
+
+.esi-stat {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.esi-stat-icon {
+    font-size: 28px;
+}
+
+.esi-stat-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.esi-stat-label {
+    font-size: 12px;
+    color: #9fb2c7;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.esi-stat-count {
+    font-size: 20px;
+    font-weight: 700;
+    color: #5b8cff;
+}
+
+.esi-description {
+    background: rgba(91, 140, 255, 0.08);
+    border-left: 3px solid #5b8cff;
+    padding: 12px 16px;
+    border-radius: 8px;
+}
+
+.esi-desc-text {
+    margin: 0;
+    font-size: 13px;
+    color: #9fb2c7;
+    line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+    .event-subscription-info {
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    .esi-title {
+        font-size: 20px;
+    }
+
+    .esi-subscription-stats {
+        grid-template-columns: 1fr;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .esi-stat {
+        padding: 8px;
+    }
+}

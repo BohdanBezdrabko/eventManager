@@ -13,6 +13,7 @@ export const PostStatus = {
 /** Канал */
 export const Channel = {
     TELEGRAM: "TELEGRAM",
+    WHATSAPP: "WHATSAPP",
     INSTAGRAM: "INSTAGRAM",
     FACEBOOK: "FACEBOOK",
 };

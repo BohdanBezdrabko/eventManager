@@ -105,7 +105,10 @@ export default function EditPostPage() {
     );
 
     const channelOptions = useMemo(
-        () => [{ value: Channel.TELEGRAM, label: "Telegram" }],
+        () => [
+            { value: Channel.TELEGRAM, label: "Telegram" },
+            { value: Channel.WHATSAPP, label: "WhatsApp" },
+        ],
         []
     );
 
