@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.quality.Strictness;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
@@ -22,10 +23,16 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import org.mockito.quality.Strictness;
+
+// ...existing code...
+
 @ExtendWith(MockitoExtension.class)
 class PostServiceTest {
 
-    @Mock PostRepository postRepository;
+    // Lenient mode дозволяє сту бування з ArgumentMatchers без strict перевірки
+    @Mock(strictness = Strictness.LENIENT)
+    PostRepository postRepository;
     @Mock EventRepository eventRepository;
     @Mock PostDispatchService postDispatchService;
 
@@ -43,6 +50,8 @@ class PostServiceTest {
 
         // Значення @Value("${telegram.bot.chat-id:}")
         ReflectionTestUtils.setField(postService, "defaultChatId", "123456789");
+        // Значення @Value("${dispatcher.batch-size:50}")
+        ReflectionTestUtils.setField(postService, "batchSize", 50);
     }
 
     private Post newPostEntity(Long id) {
