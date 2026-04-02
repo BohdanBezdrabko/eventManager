@@ -122,7 +122,8 @@ class PostServiceTest {
 
         // bad audience
         PostPayload p2 = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "xxx","TELEGRAM",null);
+                "xxx","TELEGRAM","DRAFT");
+
         assertThatThrownBy(() -> postService.create(100L, p2))
                 .isInstanceOf(IllegalArgumentException.class);
 
@@ -166,7 +167,7 @@ class PostServiceTest {
         when(postRepository.findById(5L)).thenReturn(Optional.of(existing));
 
         PostPayload payload = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "PUBLIC","TELEGRAM",null);
+                "PUBLIC","TELEGRAM","DRAFT");
 
         assertThatThrownBy(() -> postService.update(100L, 5L, payload))
                 .isInstanceOf(NotFoundException.class);
@@ -262,7 +263,9 @@ class PostServiceTest {
     void dispatchDue_processesAll() {
         Post p1 = newPostEntity(1L); p1.setStatus(PostStatus.SCHEDULED);
         Post p2 = newPostEntity(2L); p2.setStatus(PostStatus.SCHEDULED);
-        when(postRepository.lockNextDue(50))
+
+        // Мокуємо lockNextDueWithEvent з FETCH JOIN
+        when(postRepository.lockNextDueWithEvent(any(LocalDateTime.class), eq(50)))
                 .thenReturn(List.of(p1, p2));
 
         // перший ок, другий впаде — сервіс має проковтнути (PostDispatchService сам виставить FAILED)
