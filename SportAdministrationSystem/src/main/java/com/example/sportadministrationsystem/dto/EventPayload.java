@@ -31,4 +31,8 @@ public class EventPayload {
     private String category;                    // приходить як String
 
     private List<@Size(max = 128) String> tags; // імена тегів
+
+    // НОВОЕ: Вибір каналів для автогенерації постів
+    // Якщо не вказано - беремо дефолт (обидва TELEGRAM + WHATSAPP)
+    private List<String> channels;  // напр. ["TELEGRAM", "WHATSAPP"] або ["WHATSAPP"]
 }

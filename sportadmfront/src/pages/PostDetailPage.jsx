@@ -45,10 +45,37 @@ export default function PostDetailPage() {
     const doPublishNow = async () => {
         try {
             setBusy(true);
-            await publishNow(eventId, postId);
+            setErr("");
+
+            console.log("Publishing post...", { eventId, postId, channel: data?.channel });
+
+            // Перевіряємо критичні умови
+            if (!eventId || !postId) {
+                throw new Error("Event ID або Post ID не передані");
+            }
+
+            if (!data?.channel) {
+                throw new Error("Канал не вибраний");
+            }
+
+            if (!data?.audience) {
+                throw new Error("Аудиторія не вибрана");
+            }
+
+            const response = await publishNow(eventId, postId);
+            console.log("Publish response:", response);
+
+            // Перезавантажуємо дані постом
             await load();
+
+            // Показуємо успіх
+            setErr(""); // очищаємо помилки
+            alert("✅ Пост опублікований успішно!");
         } catch (e) {
-            setErr(e?.message || "Не вдалося опублікувати.");
+            console.error("Publish error:", e);
+            const errorMsg = e?.message || "Не вдалося опублікувати.";
+            setErr(errorMsg);
+            alert(`❌ ${errorMsg}`);
         } finally {
             setBusy(false);
         }
@@ -140,7 +167,7 @@ export default function PostDetailPage() {
                                 <>
                                     <div className="spacer" />
                                     <a
-                                        href={`https://t.me/YourBotUsername?start=${eventId}:${postId}`}
+                                        href={`https://t.me/KoStationBot?start=${eventId}:${postId}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="btn btn-outline-primary"
@@ -149,7 +176,7 @@ export default function PostDetailPage() {
                                         📱 Telegram
                                     </a>
                                     <a
-                                        href={`https://wa.me/?text=START%20${eventId}:${postId}`}
+                                        href={`https://wa.me/15551944111?text=START%20${eventId}:${postId}`}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         className="btn btn-outline-primary"

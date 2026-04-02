@@ -13,6 +13,7 @@ import com.example.sportadministrationsystem.repository.TagRepository;
 import com.example.sportadministrationsystem.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -26,6 +27,7 @@ import java.util.*;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class EventService {
 
     private final EventRepository eventRepository;
@@ -35,6 +37,10 @@ public class EventService {
     /** Конкретний сервіс генерації постів — він є у твоєму контексті. */
     @Autowired(required = false)
     private PostGenerationService postGenerationService;
+
+    /** Сервіс для управління WhatsApp нагадуваннями */
+    @Autowired(required = false)
+    private WhatsAppReminderService whatsAppReminderService;
 
     /* ======================= READ ======================= */
 
@@ -123,8 +129,9 @@ public class EventService {
         applyPayload(e, payload);
         Event saved = eventRepository.save(e);
 
-        // Автоматична генерація постів із шаблонів під новий івент (якщо сервіс є)
-        tryEnsureTemplates(saved);
+        // Автоматична генерація постів із шаблонів під новий івент
+        // НОВОЕ: передаємо вибрані канали з payload
+        tryEnsureTemplates(saved, payload.getChannels());
 
         return toDto(saved);
     }
@@ -135,8 +142,16 @@ public class EventService {
         Event e = eventRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Event not found: id=" + id));
 
+        // Зберігаємо старий час для перевірки змін
+        LocalDateTime oldStartAt = e.getStartAt();
+
         applyPayload(e, payload);
         Event saved = eventRepository.save(e);
+
+        // Якщо час початку івенту змінився, скидаємо прапорці нагадування
+        if (oldStartAt != null && !oldStartAt.equals(saved.getStartAt())) {
+            tryResetReminders(saved.getId());
+        }
 
         // Підтягнемо шаблонні/планові пости під оновлений івент (якщо сервіс є)
         tryEnsureTemplates(saved);
@@ -264,13 +279,40 @@ public class EventService {
 
     /** Легкий виклик генерації шаблонних/планових постів після create/update. */
     private void tryEnsureTemplates(Event saved) {
+        tryEnsureTemplates(saved, null);
+    }
+
+    /** Легкий виклик генерації шаблонних/планових постів з вибором каналів. */
+    private void tryEnsureTemplates(Event saved, java.util.List<String> channels) {
         if (postGenerationService == null || saved == null) return;
         try {
-            // У твоєму PostGenerationService є саме цей метод:
-            // public void ensureEventScheduledPosts(Event e)
-            postGenerationService.ensureEventScheduledPosts(saved);
+            java.util.Set<com.example.sportadministrationsystem.model.Channel> allowedChannels = null;
+
+            if (channels != null && !channels.isEmpty()) {
+                allowedChannels = new java.util.HashSet<>();
+                for (String ch : channels) {
+                    try {
+                        allowedChannels.add(com.example.sportadministrationsystem.model.Channel.valueOf(ch.toUpperCase(Locale.ROOT)));
+                    } catch (IllegalArgumentException e) {
+                        log.warn("Unknown channel: {}", ch);
+                    }
+                }
+            }
+
+            postGenerationService.ensureEventScheduledPosts(saved, allowedChannels);
         } catch (Exception ignore) {
-            // не блокуємо CRUD у разі збоїв генерації
+            log.warn("Failed to ensure templates for event {}: {}", saved.getId(), ignore.getMessage());
+        }
+    }
+
+    /** Скидає прапорці нагадування для івенту при зміні часу. */
+    private void tryResetReminders(Long eventId) {
+        if (whatsAppReminderService == null || eventId == null) return;
+        try {
+            whatsAppReminderService.resetRemindersForEvent(eventId);
+        } catch (Exception e) {
+            // не блокуємо CRUD у разі збоїв скидання нагадувань
+            log.warn("Failed to reset reminders for event {}: {}", eventId, e.getMessage());
         }
     }
 }

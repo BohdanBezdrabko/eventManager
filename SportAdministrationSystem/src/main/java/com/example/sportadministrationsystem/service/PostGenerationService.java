@@ -1,5 +1,6 @@
 package com.example.sportadministrationsystem.service;
 
+import com.example.sportadministrationsystem.model.Channel;
 import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.model.EventCategory;
 import com.example.sportadministrationsystem.model.Post;
@@ -18,7 +19,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -32,12 +35,28 @@ public class PostGenerationService {
     private static final DateTimeFormatter DT = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
 
     /**
-     * Викликається при створенні/оновленні івенту або добовим сканером
+     * Викликається при створенні/оновленні івенту або добовим сканером.
+     * Генерує пости тільки для дозволених каналів.
+     *
+     * @param e івент
+     * @param allowedChannels Набір дозволених каналів (напр. "TELEGRAM", "WHATSAPP")
+     *                        Якщо null/пусто - используем всі шаблони
      */
     @Transactional
-    public void ensureEventScheduledPosts(Event e) {
+    public void ensureEventScheduledPosts(Event e, Set<Channel> allowedChannels) {
         EventCategory cat = e.getCategory();
         List<PostTemplate> templates = templateRepo.findActiveForCategory(cat);
+
+        if (allowedChannels != null && !allowedChannels.isEmpty()) {
+            // Фільтруємо шаблони тільки для дозволених каналів
+            templates = templates.stream()
+                    .filter(t -> allowedChannels.contains(t.getChannel()))
+                    .toList();
+            log.info("Filtering post templates by allowed channels: {} (found {} templates)",
+                    allowedChannels, templates.size());
+        } else {
+            log.info("No channel filter, using all templates for event {}", e.getId());
+        }
 
         for (PostTemplate t : templates) {
             LocalDateTime publishAt = e.getStartAt()
@@ -57,17 +76,28 @@ public class PostGenerationService {
                     .body(body)
                     .publishAt(publishAt)
                     .status(PostStatus.SCHEDULED)
-                    .audience(t.getAudience())   // ← ключове для п.7
-                    .channel(t.getChannel())     // ← TELEGRAM/INTERNAL береться з шаблону
+                    .audience(t.getAudience())
+                    .channel(t.getChannel())
                     .generated(true)
                     .build();
 
             postRepo.save(p);
+            log.debug("Generated post for event {}, channel {}, publish at {}",
+                    e.getId(), t.getChannel(), publishAt);
         }
     }
 
     /**
-     * Добовий сканер на випадок змін дат/категорій
+     * Перегружена версія без фільтру каналів (для сумісності)
+     */
+    @Transactional
+    public void ensureEventScheduledPosts(Event e) {
+        ensureEventScheduledPosts(e, null);
+    }
+
+    /**
+     * Добовий сканер на випадок змін дат/категорій.
+     * Генерує ДЛЯ ВСІХ КАНАЛІВ (бекдрп старої логіки)
      */
     @Transactional
     @Scheduled(cron = "0 5 * * * *")
@@ -76,6 +106,7 @@ public class PostGenerationService {
         List<Event> upcoming = eventRepo.findByStartAtAfter(now);
         for (Event e : upcoming) {
             try {
+                // Добовий сканер генерує для всіх каналів
                 ensureEventScheduledPosts(e);
             } catch (Exception ex) {
                 log.warn("Autogen posts failed for event id={} : {}", e.getId(), ex.getMessage());

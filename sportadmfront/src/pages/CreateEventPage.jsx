@@ -22,6 +22,7 @@ export default function CreateEventPage() {
         category: "",
         tags: "",
         description: "",
+        channels: ["TELEGRAM", "WHATSAPP"],
     });
     const [submitting, setSubmitting] = useState(false);
     const [err, setErr] = useState("");
@@ -45,6 +46,7 @@ export default function CreateEventPage() {
                 category: form.category?.trim() || null,
                 tags: form.tags ? form.tags.split(",").map((t) => t.trim()).filter(Boolean) : null,
                 description: form.description?.trim() || null,
+                channels: form.channels && form.channels.length > 0 ? form.channels : null,
             };
             const created = await createEvent(payload);
             navigate(`/events/${created.id}`);
@@ -112,6 +114,42 @@ export default function CreateEventPage() {
                         <textarea id="description" name="description" rows={5} value={form.description} onChange={onChange} className="cep-input" placeholder="Короткий опис заходу" />
                     </div>
 
+                    {/* НОВОЕ: Вибір каналів для автогенерації постів */}
+                    <div className="cep-divider">
+                        <h4 className="cep-divider__title">📢 Вибір каналів для розповсюдження</h4>
+                    </div>
+                    <div className="cep-channels">
+                        <label className="cep-checkbox-label">
+                            <input
+                                type="checkbox"
+                                checked={form.channels.includes("TELEGRAM")}
+                                onChange={(e) => {
+                                    const ch = form.channels.includes("TELEGRAM")
+                                        ? form.channels.filter(c => c !== "TELEGRAM")
+                                        : [...form.channels, "TELEGRAM"];
+                                    setForm(s => ({ ...s, channels: ch }));
+                                }}
+                            />
+                            <span>Telegram</span>
+                        </label>
+                        <label className="cep-checkbox-label">
+                            <input
+                                type="checkbox"
+                                checked={form.channels.includes("WHATSAPP")}
+                                onChange={(e) => {
+                                    const ch = form.channels.includes("WHATSAPP")
+                                        ? form.channels.filter(c => c !== "WHATSAPP")
+                                        : [...form.channels, "WHATSAPP"];
+                                    setForm(s => ({ ...s, channels: ch }));
+                                }}
+                            />
+                            <span>WhatsApp</span>
+                        </label>
+                    </div>
+                    <p className="cep-hint">
+                        ✨ Обрані канали будуть використані для автоматичної генерації постів на основі шаблонів.
+                    </p>
+
                     <div className="cep-actions">
                         <Link to="/events" className="btn btn-ghost">Скасувати</Link>
                         <button className="btn btn-primary" disabled={submitting}>
@@ -141,5 +179,11 @@ textarea.cep-input{ height:auto; resize:vertical; padding-top:10px }
 .btn-ghost{ background:#0f1318; border-color:#ffffff1a }
 .alert{ padding:12px; border-radius:10px }
 .alert-danger{ background:#3b0f14; border:1px solid #a83a46; color:#ffd5d8 }
+.cep-divider{ margin:16px 0 8px 0; padding-bottom:8px; border-bottom:1px solid #ffffff14 }
+.cep-divider__title{ margin:0; font-size:13px; font-weight:600; color:#9fb2c7 }
+.cep-channels{ display:flex; gap:16px; flex-wrap:wrap }
+.cep-checkbox-label{ display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#e8eef6; user-select:none }
+.cep-checkbox-label input{ cursor:pointer; accent-color:#4c7fff }
+.cep-hint{ margin:6px 0 0 0; font-size:12px; color:#9fb2c7; font-style:italic }
 @media (max-width:760px){ .cep-grid{ grid-template-columns:1fr } }
 `;

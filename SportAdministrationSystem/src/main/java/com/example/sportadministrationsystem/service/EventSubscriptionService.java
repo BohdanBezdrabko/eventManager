@@ -2,7 +2,6 @@ package com.example.sportadministrationsystem.service;
 
 import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.model.EventSubscription;
-import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.model.UserTelegram;
 import com.example.sportadministrationsystem.repository.EventRepository;
 import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
@@ -31,19 +30,18 @@ public class EventSubscriptionService {
                 .orElseThrow(() -> new IllegalArgumentException("Event not found: " + eventId));
 
         Optional<EventSubscription> found =
-                subs.findByEventAndUserTelegramAndMessenger(event, tgAcc, Messenger.TELEGRAM);
+                subs.findByEventAndUserTelegram(event, tgAcc);
 
         if (desired) {
             if (found.isEmpty()) {
                 EventSubscription es = new EventSubscription();
                 es.setEvent(event);
                 es.setUserTelegram(tgAcc);
-                es.setMessenger(Messenger.TELEGRAM);
                 es.setActive(true);
                 subs.saveAndFlush(es);
                 return true;
             } else if (!found.get().isActive()) {
-                int updated = subs.reactivate(event, tgAcc, Messenger.TELEGRAM);
+                int updated = subs.reactivate(event, tgAcc);
                 if (updated == 0) {
                     // fallback на entity update (якщо update-query нічого не змінила)
                     EventSubscription es = found.get();
@@ -57,7 +55,7 @@ public class EventSubscriptionService {
             }
         } else {
             if (found.isPresent() && found.get().isActive()) {
-                int updated = subs.deactivate(event, tgAcc, Messenger.TELEGRAM);
+                int updated = subs.deactivate(event, tgAcc);
                 if (updated == 0) {
                     EventSubscription es = found.get();
                     es.setActive(false);

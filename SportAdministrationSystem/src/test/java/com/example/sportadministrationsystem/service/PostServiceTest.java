@@ -58,7 +58,6 @@ class PostServiceTest {
                 .externalId(null)
                 .error(null)
                 .generated(false)
-                .telegramChatId("123456789")
                 .build();
         return p;
     }
@@ -80,8 +79,7 @@ class PostServiceTest {
                 "Title", "Body",
                 LocalDateTime.now().plusHours(3),
                 "PUBLIC", "TELEGRAM",
-                null, // status not provided
-                ""    // telegramChatId blank -> візьметься з @Value
+                null  // status not provided
         );
 
         PostDto dto = postService.create(100L, payload);
@@ -90,7 +88,6 @@ class PostServiceTest {
         assertThat(dto.status()).isEqualTo(PostStatus.DRAFT.name());
         assertThat(dto.audience()).isEqualTo(Audience.PUBLIC.name());
         assertThat(dto.channel()).isEqualTo(Channel.TELEGRAM.name());
-        assertThat(dto.telegramChatId()).isEqualTo("123456789");
 
         Post saved = cap.getValue();
         assertThat(saved.isGenerated()).isFalse();
@@ -104,7 +101,7 @@ class PostServiceTest {
 
         PostPayload payload = new PostPayload(
                 "Title","Body", LocalDateTime.now().plusHours(1),
-                "PUBLIC","TELEGRAM","DRAFT",null
+                "PUBLIC","TELEGRAM","DRAFT"
         );
 
         assertThatThrownBy(() -> postService.create(100L, payload))
@@ -119,19 +116,19 @@ class PostServiceTest {
 
         // bad status
         PostPayload p1 = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "PUBLIC","TELEGRAM","BOOM",null);
+                "PUBLIC","TELEGRAM","BOOM");
         assertThatThrownBy(() -> postService.create(100L, p1))
                 .isInstanceOf(IllegalArgumentException.class);
 
         // bad audience
         PostPayload p2 = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "xxx","TELEGRAM",null,null);
+                "xxx","TELEGRAM",null);
         assertThatThrownBy(() -> postService.create(100L, p2))
                 .isInstanceOf(IllegalArgumentException.class);
 
         // bad channel
         PostPayload p3 = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "PUBLIC","slack",null,null);
+                "PUBLIC","slack",null);
         assertThatThrownBy(() -> postService.create(100L, p3))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -148,8 +145,7 @@ class PostServiceTest {
 
         PostPayload payload = new PostPayload(
                 "NewT","NewB", LocalDateTime.now().plusDays(1),
-                "SUBSCRIBERS","TELEGRAM", "SCHEDULED",
-                " " // blank -> має стати null
+                "SUBSCRIBERS","TELEGRAM", "SCHEDULED"
         );
 
         PostDto dto = postService.update(100L, 5L, payload);
@@ -158,7 +154,6 @@ class PostServiceTest {
         assertThat(dto.body()).isEqualTo("NewB");
         assertThat(dto.status()).isEqualTo(PostStatus.SCHEDULED.name());
         assertThat(dto.audience()).isEqualTo(Audience.SUBSCRIBERS.name());
-        assertThat(dto.telegramChatId()).isNull();
     }
 
     @Test
@@ -171,7 +166,7 @@ class PostServiceTest {
         when(postRepository.findById(5L)).thenReturn(Optional.of(existing));
 
         PostPayload payload = new PostPayload("t","b", LocalDateTime.now().plusHours(1),
-                "PUBLIC","TELEGRAM",null,null);
+                "PUBLIC","TELEGRAM",null);
 
         assertThatThrownBy(() -> postService.update(100L, 5L, payload))
                 .isInstanceOf(NotFoundException.class);
@@ -267,7 +262,7 @@ class PostServiceTest {
     void dispatchDue_processesAll() {
         Post p1 = newPostEntity(1L); p1.setStatus(PostStatus.SCHEDULED);
         Post p2 = newPostEntity(2L); p2.setStatus(PostStatus.SCHEDULED);
-        when(postRepository.findPostsToDispatch(eq(PostStatus.SCHEDULED), any(LocalDateTime.class)))
+        when(postRepository.lockNextDue(50))
                 .thenReturn(List.of(p1, p2));
 
         // перший ок, другий впаде — сервіс має проковтнути (PostDispatchService сам виставить FAILED)

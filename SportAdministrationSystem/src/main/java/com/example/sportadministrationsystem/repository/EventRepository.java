@@ -82,4 +82,30 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select e from Event e where e.id = :id")
     Optional<Event> findByIdForUpdate(@Param("id") Long id);
+
+    // ---------- WhatsApp upcoming events (майбутні види тільки) ----------
+    /**
+     * Повертає всі майбутні івенти (startAt > now), відсортовані за startAt ASC.
+     * Використовується для команди EVENTS у WhatsApp.
+     */
+    @Query("""
+           select e
+           from Event e
+           where e.startAt > :now
+           order by e.startAt asc
+           """)
+    List<Event> findUpcomingEvents(@Param("now") LocalDateTime now);
+
+    /**
+     * Повертає майбутні івенти з обмеженням, що знаходяться
+     * у діапазоні часу для нагадувань (за 72 та 24 години).
+     */
+    @Query("""
+           select e
+           from Event e
+           where e.startAt > :minTime
+             and e.startAt < :maxTime
+           order by e.startAt asc
+           """)
+    List<Event> findEventsBetween(@Param("minTime") LocalDateTime minTime, @Param("maxTime") LocalDateTime maxTime);
 }

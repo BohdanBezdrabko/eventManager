@@ -9,6 +9,7 @@ import {
 } from "@/services/events.jsx";
 import { listPosts, Audience, Channel, PostStatus } from "@/services/posts.jsx";
 import EventSubscriptionInfo from "@/components/EventSubscriptionInfo";
+import WhatsAppAssetsSection from "@/components/WhatsAppAssetsSection";
 
 function fmt(dt) {
     return dt ? new Date(dt).toLocaleString() : "—";
@@ -235,6 +236,9 @@ export default function EventDetailPage() {
                         tgCount={tgSubs?.count}
                         waCount={waSubs?.count}
                     />
+
+                    {/* WhatsApp Assets Section */}
+                    <WhatsAppAssetsSection eventId={ev.id} eventName={ev.name} />
 
                     <div className="grid">
                         {/* LEFT: Posts */}

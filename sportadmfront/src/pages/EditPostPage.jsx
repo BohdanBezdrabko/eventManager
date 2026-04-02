@@ -94,6 +94,8 @@ export default function EditPostPage() {
         channel: Channel.TELEGRAM,
         status: PostStatus.DRAFT,
         telegramChatId: "",
+        whatsappGroupId: "",
+        whatsappPersonal: true,
     });
 
     const audienceOptions = useMemo(
@@ -145,6 +147,8 @@ export default function EditPostPage() {
                     channel: p.channel ?? Channel.TELEGRAM,
                     status: p.status ?? PostStatus.DRAFT,
                     telegramChatId: p.telegramChatId ?? "",
+                    whatsappGroupId: p.whatsappGroupId ?? "",
+                    whatsappPersonal: p.whatsappPersonal ?? true,
                 });
 
                 setOriginalStatus(p.status ?? PostStatus.DRAFT);
@@ -186,6 +190,15 @@ export default function EditPostPage() {
                 throw new Error("Для статусу SCHEDULED потрібно вказати дату публікації.");
             }
 
+            console.log("Saving post with payload:", {
+                title: form.title,
+                channel: form.channel,
+                audience: form.audience,
+                status: form.status,
+                whatsappPersonal: form.whatsappPersonal,
+                whatsappGroupId: form.whatsappGroupId,
+            });
+
             // 1) Оновлюємо метадані поста БЕЗ поля status
             const payload = {
                 title: form.title,
@@ -196,16 +209,32 @@ export default function EditPostPage() {
                 telegramChatId: form.telegramChatId,
             };
 
+            // Додаємо WhatsApp-специфічні поля
+            if (form.channel === Channel.WHATSAPP) {
+                if (form.whatsappGroupId?.trim()) {
+                    payload.whatsappGroupId = form.whatsappGroupId.trim();
+                }
+                // ВАЖЛИВО: завжди додаємо whatsappPersonal для WhatsApp
+                payload.whatsappPersonal = form.whatsappPersonal;
+            }
+
+            console.log("Updating post...");
             await updatePost(eventId, postId, payload);
 
             // 2) Якщо статус змінився — окремий PATCH /status
             if (form.status !== originalStatus) {
+                console.log(`Changing status from ${originalStatus} to ${form.status}`);
                 await setPostStatus(eventId, postId, { status: form.status });
             }
 
+            console.log("Post saved successfully");
+            alert("✅ Пост збережено успішно!");
             navigate(`/events/${eventId}/posts/${postId}`);
         } catch (e2) {
-            setErr(e2?.message || "Помилка збереження.");
+            console.error("Save error:", e2);
+            const errorMsg = e2?.message || "Помилка збереження.";
+            setErr(errorMsg);
+            alert(`❌ ${errorMsg}`);
         } finally {
             setSaving(false);
         }
@@ -342,6 +371,42 @@ export default function EditPostPage() {
                                 />
                             </div>
                         </div>
+
+                        {form.channel === Channel.WHATSAPP && (
+                            <>
+                                <hr style={{ margin: "12px 0", borderColor: "#ffffff22", border: "none", borderTop: "1px solid #ffffff22" }} />
+                                <h4 style={{ margin: "8px 0", fontSize: "13px", color: "#c6cbe0", fontWeight: 600 }}>⚙️ WhatsApp параметри</h4>
+
+                                <div className="field">
+                                    <label style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}>
+                                        <input
+                                            type="checkbox"
+                                            checked={form.whatsappPersonal}
+                                            onChange={() => setForm((s) => ({ ...s, whatsappPersonal: !s.whatsappPersonal }))}
+                                            style={{ width: "18px", height: "18px", accentColor: "#2f76ff", cursor: "pointer" }}
+                                        />
+                                        <span style={{ color: "#e8ecff", fontWeight: 500 }}>Відправляти особисті повідомлення підписникам</span>
+                                    </label>
+                                    <p style={{ fontSize: "12px", color: "#a3aac2", margin: "6px 0 0 0" }}>
+                                        Бот відправить це повідомлення кожному підписнику у їх особистий чат.
+                                    </p>
+                                </div>
+
+                                <div className="field">
+                                    <label className="label">WhatsApp Group ID (необов.)</label>
+                                    <input
+                                        className="input"
+                                        name="whatsappGroupId"
+                                        value={form.whatsappGroupId}
+                                        onChange={onChange}
+                                        placeholder="Напр. 120363xxxxx@g.us"
+                                    />
+                                    <p style={{ fontSize: "12px", color: "#a3aac2", margin: "6px 0 0 0" }}>
+                                        Якщо залишити порожнім, повідомлення отримають тільки в особисті чати.
+                                    </p>
+                                </div>
+                            </>
+                        )}
 
                         <div className="actions">
                             <button disabled={saving} className="btn btn-outline-primary" type="submit">

@@ -4,7 +4,6 @@ import com.example.sportadministrationsystem.exception.MissingTelegramChatIdExce
 import com.example.sportadministrationsystem.model.Audience;
 import com.example.sportadministrationsystem.model.Channel;
 import com.example.sportadministrationsystem.model.Event;
-import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.model.Post;
 import com.example.sportadministrationsystem.model.PostStatus;
 import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
@@ -13,6 +12,7 @@ import com.example.sportadministrationsystem.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,12 +36,22 @@ public class PostDispatchService {
     private String defaultChannelChatId;
 
     /**
-     * Відправка одного поста (в новій транзакції, щоб статус поста завжди зберігався).
+     * Асинхронна відправка поста (в новій транзакції, щоб статус поста завжди зберігався).
      * Підтримує: TELEGRAM та WHATSAPP канали
+     *
+     * ВАЖЛИВО: Post повинен бути повністю завантажений ДО виклику цього методу,
+     * включаючи Event і всі його поля.
      */
+    @Async
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void dispatch(Post post) {
         try {
+            // Убезпечення від LazyInitializationException:
+            // Event та його поля повинні бути завантажені в батьківській транзакції
+            if (post.getEvent() == null) {
+                throw new IllegalStateException("Post #" + post.getId() + " must have Event loaded");
+            }
+
             int sentCount = switch (post.getChannel()) {
                 case TELEGRAM -> dispatchTelegram(post);
                 case WHATSAPP -> dispatchWhatsApp(post);
@@ -124,8 +134,10 @@ public class PostDispatchService {
         Event e = p.getEvent();
         if (e == null || e.getId() == null) return 0;
 
-        List<Long> chatIds = eventSubscriptionRepository
-                .findSubscriberChatIds(e.getId(), Messenger.TELEGRAM);
+        // ВАЖЛИВО: копіюємо список, щоб відокремити від Hibernate сесії
+        List<Long> chatIds = new java.util.ArrayList<>(
+            eventSubscriptionRepository.findSubscriberChatIds(e.getId())
+        );
 
         String text = buildPostText(p);
         String linkUrl = resolveEventLinkUrl(e);
@@ -145,6 +157,7 @@ public class PostDispatchService {
 
     /**
      * Публічний пост у WhatsApp канал
+     * Якщо whatsappPersonal=true, розповсюдити всім підписникам
      */
     private int dispatchWhatsAppPublic(Post p) {
         Event e = p.getEvent();
@@ -152,28 +165,35 @@ public class PostDispatchService {
             throw new IllegalStateException("PUBLIC WhatsApp post must be linked to an Event");
         }
 
+        // ВАЖЛИВО: Завантажуємо ВСІ поля Event одразу в поточній сесії
+        // Це запобігає "statement has been closed" помилкам в асинхронному контексті
+        String eventName = e.getName();
+        String eventLocation = e.getLocation();
+        Object eventStartAt = e.getStartAt();
+
         String text = buildPostTextWithEvent(p, e);
         String linkUrl = resolveEventLinkUrl(e);
+        int sent = 0;
 
-        // Отримуємо всіх підписників для публічного поста у WhatsApp
-        List<String> waIds = eventSubscriptionWhatsappRepository.findSubscriberWaIds(e.getId());
+        // Відправка всім підписникам у приватні чати
+        List<String> waIds = new java.util.ArrayList<>(
+            eventSubscriptionWhatsappRepository.findSubscriberWaIds(e.getId())
+        );
 
         if (waIds.isEmpty()) {
-            log.info("No WhatsApp subscribers for public post #{}", p.getId());
-            return 0;
-        }
-
-        int sent = 0;
-        for (String waId : waIds) {
-            try {
-                String messageWithLink = text;
-                if (linkUrl != null && !linkUrl.isBlank()) {
-                    messageWithLink = text + "\n\n🔗 " + linkUrl;
+            log.info("No WhatsApp subscribers for post #{}", p.getId());
+        } else {
+            for (String waId : waIds) {
+                try {
+                    String messageWithLink = text;
+                    if (linkUrl != null && !linkUrl.isBlank()) {
+                        messageWithLink = text + "\n\n🔗 " + linkUrl;
+                    }
+                    whatsAppGraphClient.sendText(waId, messageWithLink);
+                    sent++;
+                } catch (Exception ex) {
+                    log.error("WhatsApp API error while sending post to waId={}: {}", waId, ex.getMessage(), ex);
                 }
-                whatsAppGraphClient.sendText(waId, messageWithLink);
-                sent++;
-            } catch (Exception ex) {
-                log.error("WhatsApp API error while sending to waId={}: {}", waId, ex.getMessage(), ex);
             }
         }
 
@@ -182,46 +202,52 @@ public class PostDispatchService {
 
     /**
      * Розповсюдження WhatsApp постів підписникам (приват)
+     * whatsappPersonal=true: відправити кожному підписнику у їхній приватний чат
      */
     private int dispatchWhatsAppSubscribers(Post p) {
         Event e = p.getEvent();
         if (e == null || e.getId() == null) return 0;
 
-        List<String> waIds = eventSubscriptionWhatsappRepository.findSubscriberWaIds(e.getId());
-
-        if (waIds.isEmpty()) {
-            log.info("No WhatsApp subscribers for private post #{}", p.getId());
-            return 0;
-        }
+        // ВАЖЛИВО: Завантажуємо ВСІ поля Event одразу в поточній сесії
+        String eventName = e.getName();
+        String eventLocation = e.getLocation();
+        Object eventStartAt = e.getStartAt();
 
         String text = buildPostTextWithEvent(p, e);
         String linkUrl = resolveEventLinkUrl(e);
 
         int sent = 0;
-        for (String waId : waIds) {
-            try {
-                String messageWithLink = text;
-                if (linkUrl != null && !linkUrl.isBlank()) {
-                    messageWithLink = text + "\n\n🔗 " + linkUrl;
+
+        // Відправка у приватні чати підписникам
+        List<String> waIds = new java.util.ArrayList<>(
+            eventSubscriptionWhatsappRepository.findSubscriberWaIds(e.getId())
+        );
+        if (waIds.isEmpty()) {
+            log.info("No WhatsApp subscribers for post #{}", p.getId());
+        } else {
+            for (String waId : waIds) {
+                try {
+                    String messageWithLink = text;
+                    if (linkUrl != null && !linkUrl.isBlank()) {
+                        messageWithLink = text + "\n\n🔗 " + linkUrl;
+                    }
+                    whatsAppGraphClient.sendText(waId, messageWithLink);
+                    sent++;
+                } catch (Exception ex) {
+                    log.error("WhatsApp API error while sending to subscriber waId={}: {}", waId, ex.getMessage(), ex);
                 }
-                whatsAppGraphClient.sendText(waId, messageWithLink);
-                sent++;
-            } catch (Exception ex) {
-                log.error("WhatsApp API error while sending to subscriber waId={}: {}", waId, ex.getMessage(), ex);
             }
         }
+
 
         return sent;
     }
 
     private String resolveTargetChatId(Post p) {
-        if (p.getTelegramChatId() != null && !p.getTelegramChatId().isBlank()) {
-            return p.getTelegramChatId();
-        }
         if (defaultChannelChatId != null && !defaultChannelChatId.isBlank()) {
             return defaultChannelChatId;
         }
-        throw new MissingTelegramChatIdException("No Telegram chatId for PUBLIC post");
+        throw new MissingTelegramChatIdException("No Telegram chatId configured for PUBLIC post");
     }
 
     private String buildPostText(Post p) {
@@ -232,9 +258,32 @@ public class PostDispatchService {
 
     private String buildPostTextWithEvent(Post p, Event e) {
         String eventName = e.getName() != null ? e.getName() : "Івент #" + e.getId();
-        String eventDate = e.getStartAt() != null ?
-            new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm").format(e.getStartAt()) :
-            "Дата невідома";
+
+        String eventDate = "Дата невідома";
+        if (e.getStartAt() != null) {
+            try {
+                Object startAt = e.getStartAt();
+
+                if (startAt instanceof java.time.LocalDateTime) {
+                    eventDate = ((java.time.LocalDateTime) startAt)
+                        .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
+                } else if (startAt instanceof java.time.ZonedDateTime) {
+                    eventDate = ((java.time.ZonedDateTime) startAt)
+                        .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
+                } else if (startAt instanceof java.sql.Timestamp) {
+                    java.time.LocalDateTime ldt = ((java.sql.Timestamp) startAt).toLocalDateTime();
+                    eventDate = ldt.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
+                } else if (startAt instanceof java.util.Date) {
+                    java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm");
+                    eventDate = sdf.format((java.util.Date) startAt);
+                } else {
+                    // Fallback для невідомих типів
+                    eventDate = startAt.toString();
+                }
+            } catch (Exception ex) {
+                log.warn("Failed to format date: {}", ex.getMessage());
+            }
+        }
 
         String title = p.getTitle() != null ? p.getTitle() : "";
         String body = p.getBody() != null ? p.getBody() : "";

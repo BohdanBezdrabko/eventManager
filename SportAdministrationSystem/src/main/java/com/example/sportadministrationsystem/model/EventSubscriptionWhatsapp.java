@@ -30,4 +30,12 @@ public class EventSubscriptionWhatsapp {
     @Builder.Default
     @Column(name = "active", nullable = false)
     private boolean active = true;
+
+    @Builder.Default
+    @Column(name = "reminder_72h_sent", nullable = false)
+    private boolean reminder72hSent = false;
+
+    @Builder.Default
+    @Column(name = "reminder_24h_sent", nullable = false)
+    private boolean reminder24hSent = false;
 }

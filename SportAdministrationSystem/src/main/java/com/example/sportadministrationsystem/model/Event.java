@@ -53,6 +53,9 @@ public class Event {
     @Column(name = "category", length = 64)
     private EventCategory category;
 
+    @Column(name = "url", length = 1024)
+    private String url;
+
     @ManyToMany
     @JoinTable(
             name = "event_tags",

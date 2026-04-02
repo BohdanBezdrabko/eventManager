@@ -1,6 +1,5 @@
 package com.example.sportadministrationsystem.controller;
 
-import com.example.sportadministrationsystem.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -15,12 +14,14 @@ import java.util.Map;
 @RequestMapping("/api/v1/telegram")
 public class TelegramLinkController {
 
-    private final JwtTokenProvider jwtTokenProvider;
-
     @Value("${telegram.bot.username}")
     private String botUsername;
 
-    /** Повертає deep-link для підключення Telegram: https://t.me/<bot>?start=<jwt> */
+    /**
+     * Повертає deep-link для підключення Telegram без JWT (для безпеки).
+     * Користувач натискає посилання та починає чат з Telegram-ботом,
+     * який розпочинається з допомоги або інструкцій.
+     */
     @GetMapping("/link-url")
     public ResponseEntity<?> linkUrl(@AuthenticationPrincipal UserDetails me) {
         // Перевірка автентифікації
@@ -38,9 +39,14 @@ public class TelegramLinkController {
         }
 
         try {
-            String token = jwtTokenProvider.generateAccessToken(me);
-            String url = "https://t.me/" + botUsername + "?start=" + token;
-            return ResponseEntity.ok(url);
+            // Посилаємо посилання на бота без JWT для безпеки
+            // Користувач натиснув — бот покаже меню з виборами
+            String url = "https://t.me/" + botUsername;
+
+            return ResponseEntity.ok(Map.of(
+                "url", url,
+                "instructions", "Натисніть посилання, щоб відкрити Telegram та знайти бота. Слідуйте командам /start та інструкціям для підписки на івенти."
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(
                 Map.of("error", "InternalError", "message", "Failed to generate Telegram link: " + e.getMessage())

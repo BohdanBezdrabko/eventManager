@@ -12,6 +12,7 @@ import com.example.sportadministrationsystem.repository.EventRepository;
 import com.example.sportadministrationsystem.repository.PostRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class PostService {
 
     private final EventRepository eventRepository;
@@ -31,6 +33,9 @@ public class PostService {
 
     @Value("${telegram.bot.chat-id:}")
     private String defaultChatId;
+
+    @Value("${dispatcher.batch-size:50}")
+    private int batchSize;
 
     /* ===================== CRUD ===================== */
 
@@ -47,6 +52,11 @@ public class PostService {
         Audience audience = parseAudience(payload.audience());
         Channel channel = parseChannel(payload.channel());
 
+        // Валідація: для PUBLIC posts потрібна підтримка (поки зараз тільки SUBSCRIBERS)
+        if (audience == Audience.PUBLIC && channel == Channel.WHATSAPP) {
+            throw new IllegalArgumentException("WHATSAPP PUBLIC posts not yet supported");
+        }
+
         Post p = Post.builder()
                 .event(event)
                 .title(payload.title())
@@ -58,11 +68,6 @@ public class PostService {
                 .externalId(null)
                 .error(null)
                 .generated(false)
-                .telegramChatId(
-                        (payload.telegramChatId() != null && !payload.telegramChatId().isBlank())
-                                ? payload.telegramChatId()
-                                : (defaultChatId == null ? null : defaultChatId.trim())
-                )
                 .build();
 
         return toDto(postRepository.save(p));
@@ -91,9 +96,6 @@ public class PostService {
             PostStatus next = parseStatus(payload.status());
             validateTransition(p.getStatus(), next);
             p.setStatus(next);
-        }
-        if (payload.telegramChatId() != null) {
-            p.setTelegramChatId(payload.telegramChatId().isBlank() ? null : payload.telegramChatId());
         }
 
         return toDto(postRepository.save(p));
@@ -137,26 +139,40 @@ public class PostService {
     @Transactional
     public PostDto publishNow(Long eventId, Long postId) {
         Post p = getChecked(eventId, postId);
+
+        // ВАЖЛИВО: Завантажуємо Event явно перед асинхронним dispatch
+        // Замість простого "touch", потрібно переконатися що Event повністю завантажений
+        Event event = p.getEvent();
+        if (event != null) {
+            // Примусово завантажуємо всі потрібні поля Event в поточній сесії
+            event.getId();
+            event.getName();
+            event.getLocation();
+            event.getStartAt();
+        }
+
         postDispatchService.dispatch(p);
-        // PostDispatchService сам виставляє status/error/externalId
         return toDto(postRepository.save(p));
     }
 
     /**
      * Відправити всі SCHEDULED пости з publishAt <= now.
-     * Бере кандидатів через repository.findPostsToDispatch(...)
+     * Використовує lockNextDueWithEvent() з FETCH JOIN для явного завантаження Event
+     * перед асинхронною обробкою, що запобігає LazyInitializationException.
      */
     @Transactional
     public int dispatchDue() {
         LocalDateTime now = LocalDateTime.now();
-        List<Post> due = postRepository.findPostsToDispatch(PostStatus.SCHEDULED, now);
+        // Використовуємо JPQL запит з FETCH JOIN для явного завантаження Event
+        List<Post> due = postRepository.lockNextDueWithEvent(now, batchSize);
+
         int processed = 0;
         for (Post p : due) {
             try {
                 postDispatchService.dispatch(p);
                 processed++;
             } catch (Exception ex) {
-                // PostDispatchService уже виставив FAILED + error; продовжуємо
+                log.error("Failed to dispatch post {}: {}", p.getId(), ex.getMessage());
             }
         }
         postRepository.saveAll(due);
@@ -224,8 +240,7 @@ public class PostService {
                 p.getError(),
                 p.isGenerated(),
                 p.getCreatedAt(),
-                p.getUpdatedAt(),
-                p.getTelegramChatId()
+                p.getUpdatedAt()
         );
     }
 

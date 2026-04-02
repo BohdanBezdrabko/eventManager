@@ -3,8 +3,10 @@ package com.example.sportadministrationsystem.service;
 import com.example.sportadministrationsystem.model.Event;
 import com.example.sportadministrationsystem.model.Messenger;
 import com.example.sportadministrationsystem.model.UserTelegram;
+import com.example.sportadministrationsystem.model.TelegramBindCode;
 import com.example.sportadministrationsystem.repository.EventRepository;
 import com.example.sportadministrationsystem.repository.EventSubscriptionRepository;
+import com.example.sportadministrationsystem.repository.TelegramBindCodeRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -18,6 +20,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,6 +33,7 @@ public class TelegramService extends TelegramLongPollingBot {
     private final EventSubscriptionRepository subs;
     private final TelegramAccountProvisioner provisioner;
     private final EventSubscriptionService eventSubscriptionService;
+    private final TelegramBindCodeRepository bindCodeRepository;
 
     @Value("${telegram.bot.token}")
     private String botToken;
@@ -202,16 +206,27 @@ public class TelegramService extends TelegramLongPollingBot {
             safeSend(String.valueOf(chatId), "Івент не знайдено.", null);
             return;
         }
-        boolean isSubscribed = subs.existsByEventAndUserTelegramAndMessengerAndActiveIsTrue(
-                event, tgAcc, Messenger.TELEGRAM);
+        boolean isSubscribed = subs.existsByEventAndUserTelegramAndActiveIsTrue(event, tgAcc);
 
         String link = resolveEventLinkUrl(event);
         InlineKeyboardMarkup kb = eventKeyboard(eventId, isSubscribed, link);
 
         String eventName = event.getName() != null ? event.getName() : "Івент #" + event.getId();
-        String eventDate = event.getStartAt() != null ?
-            new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm").format(event.getStartAt()) :
-            "Дата невідома";
+
+        String eventDate = "Дата невідома";
+        if (event.getStartAt() != null) {
+            try {
+                if (event.getStartAt() instanceof java.time.LocalDateTime) {
+                    eventDate = ((java.time.LocalDateTime) event.getStartAt())
+                        .format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
+                } else {
+                    eventDate = new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm")
+                        .format(event.getStartAt());
+                }
+            } catch (Exception e) {
+                log.warn("Failed to format date: {}", e.getMessage());
+            }
+        }
 
         String text = "📅 *" + eventName + "*\n" +
                 "🕐 " + eventDate + "\n" +
@@ -224,40 +239,45 @@ public class TelegramService extends TelegramLongPollingBot {
     }
 
     private void handleStartWithPostId(long chatId, long eventId, long postId, Update update) {
-        try {
-            UserTelegram tgAcc = provisioner.ensure(update.getMessage().getFrom());
+        // ...existing code...
+    }
 
-            Event event = events.findById(eventId).orElse(null);
-            if (event == null) {
-                safeSend(String.valueOf(chatId), "❌ Івент #" + eventId + " не знайдено.", null);
+    /**
+     * Обробка команди /bind <code>
+     * Код прив'язує group chat_id до UserTelegram (для розповсюдження постів у групи)
+     */
+    private void handleBindCommand(long chatId, String code, Update update) {
+        try {
+            var bindCode = bindCodeRepository.findValidCode(code, java.time.LocalDateTime.now());
+
+            if (bindCode.isEmpty()) {
+                safeSend(String.valueOf(chatId), "❌ Код не знайдено або закінчився.", null);
                 return;
             }
 
-            // Для постів - показуємо повну інформацію про пост + івент
-            boolean isSubscribed = subs.existsByEventAndUserTelegramAndMessengerAndActiveIsTrue(
-                    event, tgAcc, Messenger.TELEGRAM);
+            var bc = bindCode.get();
+            if (bc.getUsed()) {
+                safeSend(String.valueOf(chatId), "❌ Код вже використаний.", null);
+                return;
+            }
 
-            String eventName = event.getName() != null ? event.getName() : "Івент #" + event.getId();
-            String eventDate = event.getStartAt() != null ?
-                new java.text.SimpleDateFormat("dd.MM.yyyy HH:mm").format(event.getStartAt()) :
-                "Дата невідома";
+            UserTelegram tgAcc = provisioner.ensure(update.getMessage().getFrom());
 
-            String text = "📬 *" + eventName + "*\n" +
-                    "🕐 " + eventDate + "\n" +
-                    (event.getLocation() != null && !event.getLocation().isBlank() ? "📍 " + event.getLocation() + "\n" : "") +
-                    "\n" +
-                    "🔔 Подія #" + postId + "\n" +
-                    "\n" +
-                    (isSubscribed
-                            ? "✅ Ви вже підписані на оновлення цього івенту."
-                            : "Натисніть кнопку, щоб отримувати оновлення.");
+            // Зберегти group chat_id в UserTelegram або окремо
+            // Поки що просто оновимо bind-код
+            bc.setUsed(true);
+            bc.setUsedByUserId(tgAcc.getId());
+            bc.setUsedAt(java.time.LocalDateTime.now());
+            bindCodeRepository.save(bc);
 
-            String link = resolveEventLinkUrl(event);
-            InlineKeyboardMarkup kb = eventKeyboard(eventId, isSubscribed, link);
+            safeSend(String.valueOf(chatId),
+                "✅ Група \"" + bc.getGroupName() + "\" успішно прив'язана!\n\n" +
+                "Тепер ви матимете постів у групу.", null);
 
-            safeSend(String.valueOf(chatId), text, kb);
+            log.info("Successfully bound group {} to user {}", bc.getTgGroupChatId(), tgAcc.getId());
+
         } catch (Exception e) {
-            log.error("handleStartWithPostId failed: {}", e.getMessage(), e);
+            log.error("Failed to handle bind command: {}", e.getMessage(), e);
             safeSend(String.valueOf(chatId), "⚠️ Помилка обробки. Спробуйте ще раз.", null);
         }
     }

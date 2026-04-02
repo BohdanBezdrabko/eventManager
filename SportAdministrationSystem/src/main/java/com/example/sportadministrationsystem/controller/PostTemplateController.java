@@ -9,7 +9,6 @@ import com.example.sportadministrationsystem.model.PostStatus;
 import com.example.sportadministrationsystem.repository.EventRepository;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -28,9 +27,6 @@ public class PostTemplateController {
 
     private final EventRepository eventRepository;
 
-    // Може бути заданий у application.yml: telegram.bot.chat-id: "..."
-    @Value("${telegram.bot.chat-id:}")
-    private String defaultChatId;
 
     @GetMapping("/posts/new")
     public ResponseEntity<PostDto> getNewPostTemplate(@PathVariable @Min(1) Long eventId) {
@@ -45,16 +41,15 @@ public class PostTemplateController {
                 ev.getId(),                    // eventId
                 "",                            // title
                 "",                            // body
-                publishAt,                     // publishAt (див. нижче)
+                publishAt,                     // publishAt
                 PostStatus.DRAFT.name(),       // status
-                Audience.PUBLIC.name(),        // audience
-                Channel.TELEGRAM.name(),       // channel
+                Audience.SUBSCRIBERS.name(),   // audience (за замовчанням SUBSCRIBERS)
+                Channel.WHATSAPP.name(),       // channel (за замовчанням WHATSAPP)
                 null,                          // externalId
                 null,                          // error
                 false,                         // generated
                 null,                          // createdAt
-                null,                          // updatedAt
-                (defaultChatId != null && !defaultChatId.isBlank()) ? defaultChatId : null // telegramChatId
+                null                           // updatedAt
         );
 
         return ResponseEntity.ok(dto);

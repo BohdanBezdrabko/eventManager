@@ -15,10 +15,12 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
     /**
      * Використовується для побудови дерева "івент → пости" з фільтрами.
+     * FETCH JOIN гарантує завантаження Event в одному запиті.
      */
     @Query("""
             select p from Post p
-            where p.event.id = :eventId
+            join fetch p.event e
+            where e.id = :eventId
               and (:status is null or p.status = :status)
               and (:audience is null or p.audience = :audience)
               and (:channel is null or p.channel = :channel)
@@ -31,10 +33,12 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
     /**
      * Backward-compat alias (той самий запит). Можеш прибрати, якщо ніде явно не викликається.
+     * FETCH JOIN гарантує завантаження Event в одному запиті.
      */
     @Query("""
             select p from Post p
-            where p.event.id = :eventId
+            join fetch p.event e
+            where e.id = :eventId
               and (:status is null or p.status = :status)
               and (:audience is null or p.audience = :audience)
               and (:channel is null or p.channel = :channel)
@@ -84,6 +88,27 @@ public interface PostRepository extends JpaRepository<Post, Long> {
      * Корисно для швидких лічильників по статусу (опційно для UI).
      */
     long countByEvent_IdAndStatus(Long eventId, PostStatus status);
+
+    /**
+     * Батч пістів до розсилки з явним завантаженням Event.
+     * Заповнює Event та його поля перед асинхронною обробкою.
+     * FETCH JOIN запобігає LazyInitializationException в асинхронному контексті.
+     */
+    @Query("""
+            select p from Post p
+            join fetch p.event e
+            where p.status = 'SCHEDULED'
+              and p.publishAt <= :now
+            order by p.publishAt asc, p.id asc
+            limit :limit
+            """)
+    List<Post> lockNextDueWithEvent(@Param("now") LocalDateTime now,
+                                    @Param("limit") int limit);
+
+    /**
+     * Native query батч без явного завантаження Event.
+     * Потрібно використовувати lockNextDueWithEvent замість цього методу.
+     */
     @Query(value = """
             SELECT *
             FROM posts

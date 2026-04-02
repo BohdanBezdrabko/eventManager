@@ -73,3 +73,25 @@ export const getWhatsAppLinkUrl = () =>
 /** Мій статус підписки на подію (якщо використовується у деталях) */
 export const getMySubscriptionStatus = (eventId) =>
     http.get(`${base}/${encodeURIComponent(eventId)}/subscription/my-status`);
+
+// ============================================
+// WhatsApp Integration
+// ============================================
+
+/** Отримати invite посилання та текст для WhatsApp */
+export const getWhatsAppInvite = (eventId, shortVersion = false) => {
+    const params = new URLSearchParams();
+    if (shortVersion) params.append("short", "true");
+    const qs = params.toString();
+    return http.get(`/whatsapp/events/${encodeURIComponent(eventId)}/invite${qs ? "?" + qs : ""}`);
+};
+
+/** Отримати список прив'язаних WhatsApp груп для івенту */
+export const getWhatsAppGroups = (eventId) =>
+    http.get(`/whatsapp/events/${encodeURIComponent(eventId)}/groups`);
+
+/** Видалити прив'язування WhatsApp групи від івенту */
+export const removeWhatsAppGroup = (eventId, groupId) =>
+    http.delete(`/whatsapp/events/${encodeURIComponent(eventId)}/groups/${encodeURIComponent(groupId)}`);
+
+

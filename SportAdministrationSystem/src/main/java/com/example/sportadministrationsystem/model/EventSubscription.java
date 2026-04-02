@@ -7,8 +7,8 @@ import lombok.*;
 @Table(
         name = "event_subscriptions",
         uniqueConstraints = @UniqueConstraint(
-                name = "uq_event_userTelegram_messenger",
-                columnNames = {"event_id", "user_telegram_id", "messenger"}
+                name = "uq_event_user_telegram",
+                columnNames = {"event_id", "user_telegram_id"}
         )
 )
 @Getter @Setter
@@ -28,9 +28,6 @@ public class EventSubscription {
     @JoinColumn(name = "user_telegram_id", nullable = false)
     private UserTelegram userTelegram;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "messenger", nullable = false, length = 16)
-    private Messenger messenger;
 
     @Builder.Default
     @Column(name = "active", nullable = false)

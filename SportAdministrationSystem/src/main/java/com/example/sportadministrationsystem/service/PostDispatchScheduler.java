@@ -11,11 +11,28 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class PostDispatchScheduler {
     private final PostService postService;
+    private final DbLockService dbLockService;
 
     // Раз на dispatcher.interval-ms (за замовчуванням 60с) відправляємо всі due-пости
     @Scheduled(fixedDelayString = "${dispatcher.interval-ms:60000}")
     public void tick() {
-        int sent = postService.dispatchDue();
-        if (sent > 0) log.info("Dispatched {} scheduled posts", sent);
+        long lockKey = DbLockService.key("post-dispatcher");
+        if (!dbLockService.tryLock(lockKey)) {
+            log.debug("Could not acquire lock for post dispatcher, skipping this tick");
+            return;
+        }
+
+        try {
+            int sent = postService.dispatchDue();
+            if (sent > 0) log.info("Dispatched {} scheduled posts", sent);
+        } catch (Exception e) {
+            log.error("Error during post dispatch: {}", e.getMessage(), e);
+        } finally {
+            try {
+                dbLockService.unlock(lockKey);
+            } catch (Exception e) {
+                log.warn("Failed to unlock post dispatcher: {}", e.getMessage());
+            }
+        }
     }
 }

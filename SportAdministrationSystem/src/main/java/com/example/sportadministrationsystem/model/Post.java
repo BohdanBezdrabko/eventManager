@@ -53,6 +53,7 @@ public class Post {
     @Column(nullable = false)
     private boolean generated;
 
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
@@ -60,5 +61,4 @@ public class Post {
     @UpdateTimestamp
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
-    private String telegramChatId;
 }

@@ -1,0 +1,159 @@
+/* src/components/WhatsAppAssetsSection.css */
+
+.wa-assets-section {
+    background: linear-gradient(135deg, #0f4c1f 0%, #0a2a13 100%);
+    border: 1px solid #25a45044;
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 24px;
+}
+
+.wa-assets-section h3 {
+    margin: 0 0 16px 0;
+    font-size: 18px;
+    color: #25d366;
+    font-weight: 700;
+}
+
+.wa-assets-item {
+    margin-bottom: 20px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid #25a44522;
+    border-radius: 10px;
+}
+
+.wa-assets-item h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #c5d5e6;
+}
+
+.wa-assets-item h5 {
+    margin: 0 0 8px 0;
+    font-size: 13px;
+    color: #9fb2c7;
+}
+
+.wa-assets-link {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #0f1318;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #25a44522;
+    margin-bottom: 8px;
+    overflow-x: auto;
+}
+
+.wa-assets-link code {
+    font-family: "Courier New", monospace;
+    font-size: 12px;
+    color: #25d366;
+    white-space: nowrap;
+    flex: 1;
+    word-break: break-all;
+}
+
+.btn-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: #25d366;
+    color: #0f4c1f;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: all 0.2s;
+}
+
+.btn-copy:hover {
+    background: #20ba58;
+    transform: translateY(-1px);
+}
+
+.template-select {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid #25a44544;
+    background: #0f1318;
+    color: #e8eef6;
+    font-size: 13px;
+    margin-bottom: 12px;
+}
+
+.template-select:focus {
+    outline: none;
+    border-color: #25d366;
+    box-shadow: 0 0 0 2px #25d36622;
+}
+
+.preview-box {
+    background: #0f1318;
+    border: 1px solid #25a44522;
+    border-radius: 8px;
+    padding: 12px;
+    margin: 12px 0;
+}
+
+.preview-text {
+    background: #0a0f15;
+    border-left: 3px solid #25d366;
+    padding: 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #c5d5e6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin-bottom: 12px;
+    font-family: "Courier New", monospace;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.stats {
+    font-size: 14px;
+    color: #9fb2c7;
+    margin: 8px 0;
+}
+
+.stats strong {
+    color: #25d366;
+    font-size: 18px;
+}
+
+.hint {
+    font-size: 12px;
+    color: #9fb2c7;
+    margin: 8px 0 0 0;
+    line-height: 1.4;
+}
+
+.muted {
+    font-size: 12px;
+    color: #9fb2c7;
+    font-style: italic;
+}
+
+@media (max-width: 768px) {
+    .wa-assets-link {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .wa-assets-link code {
+        word-break: break-all;
+    }
+
+    .btn-copy {
+        width: 100%;
+        justify-content: center;
+    }
+}

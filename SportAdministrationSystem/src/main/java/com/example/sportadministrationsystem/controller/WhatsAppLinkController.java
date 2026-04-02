@@ -15,14 +15,13 @@ import java.util.Map;
 @RequestMapping("/api/v1/whatsapp")
 public class WhatsAppLinkController {
 
-    private final JwtTokenProvider jwtTokenProvider;
-
     @Value("${whatsapp.business-phone-e164:}")
     private String businessPhoneE164;
 
     /**
-     * Повертає deep-link для підключення WhatsApp: https://wa.me/<phone>?text=START%20<jwt>
-     * Користувач натискає посилання та починає чат з WhatsApp-ботом
+     * Повертає deep-link для підключення WhatsApp без JWT (для безпеки).
+     * Користувач натискає посилання та починає чат з WhatsApp-ботом,
+     * який розпочинається з допомоги або інструкцій.
      */
     @GetMapping("/link-url")
     public ResponseEntity<?> linkUrl(@AuthenticationPrincipal UserDetails me) {
@@ -40,18 +39,20 @@ public class WhatsAppLinkController {
         }
 
         try {
-            String token = jwtTokenProvider.generateAccessToken(me);
-
             String phone = businessPhoneE164.trim();
             if (phone.startsWith("+")) {
                 phone = phone.substring(1);
             }
 
-            String text = "START " + token;
+            // Посилаємо простий текст без JWT для безпеки
+            String text = "Привіт! Хочу отримувати оновлення про івенти.";
             String url = "https://wa.me/" + phone + "?text=" +
                         java.net.URLEncoder.encode(text, java.nio.charset.StandardCharsets.UTF_8);
 
-            return ResponseEntity.ok(url);
+            return ResponseEntity.ok(Map.of(
+                "url", url,
+                "instructions", "Натисніть посилання, щоб відкрити WhatsApp та начати чат з ботом. Слідуйте командам в чаті для підписки на івенти."
+            ));
         } catch (Exception e) {
             return ResponseEntity.status(500).body(
                 Map.of("error", "InternalError", "message", "Failed to generate WhatsApp link: " + e.getMessage())
